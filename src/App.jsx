@@ -129,6 +129,115 @@ function Table({ columns, rows, sortState, onSort, emptyMessage }) {
   )
 }
 
+function EditVideoPanel({
+  editingVideoId,
+  videos,
+  editVideoStart,
+  setEditVideoStart,
+  editVideoDuration,
+  setEditVideoDuration,
+  editVideoNotes,
+  setEditVideoNotes,
+  editVideoSubjects,
+  subjects,
+  toggleEditSubject,
+  behaviors,
+  editVideoOccurrenceMap,
+  toggleEditOccurrence,
+  setVideos,
+  cancelEditVideo,
+  saveEditVideo,
+}) {
+  if (editingVideoId === null) return null
+
+  const editing = videos.find((video) => video.id === editingVideoId)
+  if (!editing) return null
+
+  return (
+    <div className="edit-panel">
+      <h3>Editing Video {editingVideoId}</h3>
+      <div className="form-grid">
+        <label>
+          Start time
+          <input type="datetime-local" value={editVideoStart} onChange={(event) => setEditVideoStart(event.target.value)} />
+        </label>
+        <label>
+          Duration (minutes)
+          <input type="number" min="1" step="1" value={editVideoDuration} onChange={(event) => setEditVideoDuration(event.target.value)} />
+        </label>
+        <label className="full">
+          Notes
+          <textarea rows="3" value={editVideoNotes} onChange={(event) => setEditVideoNotes(event.target.value)} placeholder="Optional notes" />
+        </label>
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <input
+          type="checkbox"
+          checked={editing.uploadedToSharePoint || false}
+          onChange={(event) =>
+            setVideos((current) =>
+              current.map((video) =>
+                video.id === editingVideoId
+                  ? { ...video, uploadedToSharePoint: event.target.checked }
+                  : video,
+              ),
+            )
+          }
+        />
+        <span>Uploaded to SharePoint</span>
+      </label>
+
+      <p className="muted" style={{ marginTop: '12px', marginBottom: '4px' }}>Subjects present</p>
+      <div className="chip-grid">
+        {subjects.map((subject) => (
+          <label key={subject.subjectCode} className={`chip ${editVideoSubjects.includes(subject.subjectCode) ? 'selected' : ''}`}>
+            <input
+              type="checkbox"
+              checked={editVideoSubjects.includes(subject.subjectCode)}
+              onChange={() => toggleEditSubject(subject.subjectCode)}
+            />
+            <span>{subject.subjectCode}</span>
+          </label>
+        ))}
+      </div>
+
+      {editVideoSubjects.length > 0 && (
+        <>
+          <p className="muted" style={{ marginTop: '12px', marginBottom: '4px' }}>Behavior occurrences</p>
+          <div className="stack">
+            {editVideoSubjects.map((subjectCode) => (
+              <div key={subjectCode} className="card inset">
+                <h4 style={{ margin: '0 0 8px' }}>{subjectCode}</h4>
+                <div className="chip-grid">
+                  {behaviors.map((behavior) => {
+                    const checked = Boolean(editVideoOccurrenceMap[`${subjectCode}::${behavior.name}`])
+                    const label = behavior.isActive ? behavior.name : `${behavior.name} (inactive)`
+                    return (
+                      <label key={behavior.name} className={`chip ${checked ? 'selected' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleEditOccurrence(subjectCode, behavior.name)}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="button-row">
+        <button type="button" className="secondary" onClick={cancelEditVideo}>Cancel</button>
+        <button type="button" className="primary" onClick={saveEditVideo}>Save Changes</button>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [ready, setReady] = useState(false)
   const [view, setView] = useState(views.home)
@@ -505,7 +614,7 @@ function App() {
     }
     const occurrences = []
     for (const subjectCode of editVideoSubjects) {
-      for (const behavior of activeBehaviors) {
+      for (const behavior of behaviors) {
         const key = `${subjectCode}::${behavior.name}`
         if (editVideoOccurrenceMap[key]) {
           occurrences.push({ subjectCode, behaviorTypeName: behavior.name, notes: null })
@@ -1013,83 +1122,25 @@ function App() {
           <h2>Log Entries</h2>
           <p className="muted">Edit or delete any previously saved recording log.</p>
 
-          {editingVideoId !== null && (() => {
-            const editing = videos.find((v) => v.id === editingVideoId)
-            return (
-              <div className="edit-panel">
-                <h3>Editing Video {editingVideoId}</h3>
-                <div className="form-grid">
-                  <label>
-                    Start time
-                    <input type="datetime-local" value={editVideoStart} onChange={(event) => setEditVideoStart(event.target.value)} />
-                  </label>
-                  <label>
-                    Duration (minutes)
-                    <input type="number" min="1" step="1" value={editVideoDuration} onChange={(event) => setEditVideoDuration(event.target.value)} />
-                  </label>
-                  <label className="full">
-                    Notes
-                    <textarea rows="3" value={editVideoNotes} onChange={(event) => setEditVideoNotes(event.target.value)} placeholder="Optional notes" />
-                  </label>
-                </div>
-                <label style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                  <input
-                    type="checkbox"
-                    checked={videos.find((v) => v.id === editingVideoId)?.uploadedToSharePoint || false}
-                    onChange={(event) => setVideos((current) => current.map((video) => video.id === editingVideoId ? { ...video, uploadedToSharePoint: event.target.checked } : video))}
-                  />
-                  <span>Uploaded to SharePoint</span>
-                </label>
-
-                <p className="muted" style={{marginTop: '12px', marginBottom: '4px'}}>Subjects present</p>
-                <div className="chip-grid">
-                  {subjects.map((subject) => (
-                    <label key={subject.subjectCode} className={`chip ${editVideoSubjects.includes(subject.subjectCode) ? 'selected' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={editVideoSubjects.includes(subject.subjectCode)}
-                        onChange={() => toggleEditSubject(subject.subjectCode)}
-                      />
-                      <span>{subject.subjectCode}</span>
-                    </label>
-                  ))}
-                </div>
-
-                {editVideoSubjects.length > 0 && (
-                  <>
-                    <p className="muted" style={{marginTop: '12px', marginBottom: '4px'}}>Behavior occurrences</p>
-                    <div className="stack">
-                      {editVideoSubjects.map((subjectCode) => (
-                        <div key={subjectCode} className="card inset">
-                          <h4 style={{margin: '0 0 8px'}}>{subjectCode}</h4>
-                          <div className="chip-grid">
-                            {activeBehaviors.map((behavior) => {
-                              const checked = Boolean(editVideoOccurrenceMap[`${subjectCode}::${behavior.name}`])
-                              return (
-                                <label key={behavior.name} className={`chip ${checked ? 'selected' : ''}`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleEditOccurrence(subjectCode, behavior.name)}
-                                  />
-                                  <span>{behavior.name}</span>
-                                </label>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                <div className="button-row">
-                  <button type="button" className="secondary" onClick={cancelEditVideo}>Cancel</button>
-                  <button type="button" className="primary" onClick={saveEditVideo}>Save Changes</button>
-                </div>
-              </div>
-            )
-          })()}
+          <EditVideoPanel
+            editingVideoId={editingVideoId}
+            videos={videos}
+            editVideoStart={editVideoStart}
+            setEditVideoStart={setEditVideoStart}
+            editVideoDuration={editVideoDuration}
+            setEditVideoDuration={setEditVideoDuration}
+            editVideoNotes={editVideoNotes}
+            setEditVideoNotes={setEditVideoNotes}
+            editVideoSubjects={editVideoSubjects}
+            subjects={subjects}
+            toggleEditSubject={toggleEditSubject}
+            behaviors={behaviors}
+            editVideoOccurrenceMap={editVideoOccurrenceMap}
+            toggleEditOccurrence={toggleEditOccurrence}
+            setVideos={setVideos}
+            cancelEditVideo={cancelEditVideo}
+            saveEditVideo={saveEditVideo}
+          />
 
           <div className="table-wrap">
             <table>
