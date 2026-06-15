@@ -158,7 +158,7 @@ function App() {
   const [recordStartTime, setRecordStartTime] = useState(localInputValue())
   const [durationMinutes, setDurationMinutes] = useState('')
   const [videoNotes, setVideoNotes] = useState('')
-  const [selectedSubjects, setSelectedSubjects] = useState(['CSH01', 'CSH02'])
+  const [selectedSubjects, setSelectedSubjects] = useState([])
   const [occurrenceMap, setOccurrenceMap] = useState({})
 
   const [dataSearch, setDataSearch] = useState('')
@@ -204,6 +204,11 @@ function App() {
 
   const activeSubjects = useMemo(() => subjects.filter((subject) => subject.isActive), [subjects])
   const activeBehaviors = useMemo(() => behaviors.filter((behavior) => behavior.isActive), [behaviors])
+  const activeSubjectCodeSet = useMemo(() => new Set(activeSubjects.map((subject) => subject.subjectCode)), [activeSubjects])
+  const selectedActiveSubjects = useMemo(
+    () => selectedSubjects.filter((subjectCode) => activeSubjectCodeSet.has(subjectCode)),
+    [selectedSubjects, activeSubjectCodeSet],
+  )
   const q3SubjectOptions = useMemo(() => {
     const codes = new Set()
     for (const subject of subjects) codes.add(subject.subjectCode)
@@ -219,6 +224,20 @@ function App() {
       setQ3Subject(q3SubjectOptions[0])
     }
   }, [q3SubjectOptions, q3Subject])
+
+  useEffect(() => {
+    setSelectedSubjects((current) => current.filter((subjectCode) => activeSubjectCodeSet.has(subjectCode)))
+    setOccurrenceMap((current) => {
+      const next = {}
+      for (const [key, value] of Object.entries(current)) {
+        const [subjectCode] = key.split('::')
+        if (activeSubjectCodeSet.has(subjectCode)) {
+          next[key] = value
+        }
+      }
+      return next
+    })
+  }, [activeSubjectCodeSet])
 
   const q1Rows = useMemo(() => {
     const rows = videos.map((video) => ({
@@ -596,7 +615,7 @@ function App() {
 
           {intakeStep === 3 && (
             <div className="stack">
-              {selectedSubjects.map((subjectCode) => (
+              {selectedActiveSubjects.map((subjectCode) => (
                 <div key={subjectCode} className="card inset">
                   <h3>{subjectCode}</h3>
                   <div className="chip-grid">
