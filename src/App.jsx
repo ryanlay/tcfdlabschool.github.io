@@ -204,6 +204,21 @@ function App() {
 
   const activeSubjects = useMemo(() => subjects.filter((subject) => subject.isActive), [subjects])
   const activeBehaviors = useMemo(() => behaviors.filter((behavior) => behavior.isActive), [behaviors])
+  const q3SubjectOptions = useMemo(() => {
+    const codes = new Set()
+    for (const subject of subjects) codes.add(subject.subjectCode)
+    for (const video of videos) {
+      for (const code of video.subjectCodes || []) codes.add(code)
+    }
+    return [...codes].sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))
+  }, [subjects, videos])
+
+  useEffect(() => {
+    if (!q3SubjectOptions.length) return
+    if (!q3SubjectOptions.includes(q3Subject)) {
+      setQ3Subject(q3SubjectOptions[0])
+    }
+  }, [q3SubjectOptions, q3Subject])
 
   const q1Rows = useMemo(() => {
     const rows = videos.map((video) => ({
@@ -673,7 +688,7 @@ function App() {
                 <div className="section-heading tight">
                   <h3>Q3 — Videos for Subject</h3>
                   <select value={q3Subject} onChange={(event) => setQ3Subject(event.target.value)}>
-                    {activeSubjects.map((subject) => <option key={subject.subjectCode} value={subject.subjectCode}>{subject.subjectCode}</option>)}
+                    {q3SubjectOptions.map((subjectCode) => <option key={subjectCode} value={subjectCode}>{subjectCode}</option>)}
                   </select>
                 </div>
                 <Table
