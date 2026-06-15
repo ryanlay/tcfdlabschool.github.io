@@ -1,10 +1,9 @@
-import { PublicClientApplication } from '@azure/msal-browser'
+/**
+ * SharePoint backend using direct REST API with browser native authentication.
+ * No Entra app registration required—browser handles OAuth directly with SharePoint.
+ * First call may prompt user to sign in to SharePoint.
+ */
 
-const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
-const SHARED_STATE_TITLE = 'SharedState'
-
-const AAD_CLIENT_ID = import.meta.env.VITE_AAD_CLIENT_ID
-const AAD_TENANT_ID = import.meta.env.VITE_AAD_TENANT_ID
 const SHAREPOINT_HOSTNAME = import.meta.env.VITE_SHAREPOINT_HOSTNAME
 const SHAREPOINT_SITE_PATH = import.meta.env.VITE_SHAREPOINT_SITE_PATH
 const SHAREPOINT_LIST_NAME = import.meta.env.VITE_SHAREPOINT_LIST_NAME || 'LabSchoolAppState'
@@ -13,70 +12,41 @@ let siteIdCache = null
 let listIdCache = null
 let itemIdCache = null
 
-const msalApp = (AAD_CLIENT_ID && AAD_TENANT_ID)
-  ? new PublicClientApplication({
-      auth: {
-        clientId: AAD_CLIENT_ID,
-        authority: `https://login.microsoftonline.com/${AAD_TENANT_ID}`,
-      },
-      cache: {
-        cacheLocation: 'localStorage',
-      },
-    })
-  : null
-
-const loginRequest = {
-  scopes: ['User.Read', 'Sites.ReadWrite.All'],
-}
-
 export function isSharePointConfigured() {
   return Boolean(
-    AAD_CLIENT_ID
-      && AAD_TENANT_ID
-      && SHAREPOINT_HOSTNAME
+    SHAREPOINT_HOSTNAME
       && SHAREPOINT_SITE_PATH
       && SHAREPOINT_LIST_NAME,
   )
 }
 
-async function getAccessToken() {
-  if (!msalApp) throw new Error('Microsoft auth is not configured.')
-
-  const accounts = msalApp.getAllAccounts()
-  if (accounts.length === 0) {
-    await msalApp.loginPopup(loginRequest)
-  }
-
-  const activeAccount = msalApp.getAllAccounts()[0]
-  if (!activeAccount) throw new Error('No Microsoft account is signed in.')
-
-  const tokenResult = await msalApp.acquireTokenSilent({
-    ...loginRequest,
-    account: activeAccount,
-  }).catch(async () => {
-    return msalApp.acquireTokenPopup({
-      ...loginRequest,
-      account: activeAccount,
-    })
-  })
-
-  return tokenResult.accessToken
-}
-
-async function graphRequest(path, init = {}) {
-  const token = await getAccessToken()
-  const response = await fetch(`${GRAPH_BASE}${path}`, {
+/**
+ * Direct SharePoint REST API call with browser authentication.
+ * Browser will handle OAuth popup if needed on first request.
+ */
+async function sharepointRequest(path, init = {}) {
+  const url = `https://${SHAREPOINT_HOSTNAME}${path}`
+  const options = {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init.headers || {}),
+      ...init.headers,
     },
-  })
+    credentials: 'include', // Include cookies for browser auth
+  }
+
+  const response = await fetch(url, options)
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '')
-    throw new Error(`Graph request failed (${response.status}): ${errorText || response.statusText}`)
+    // 401/403 typically means auth issue
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `SharePoint authentication required. Status: ${response.status}. `
+        + `You may need to sign in at https://${SHAREPOINT_HOSTNAME} first.`
+      )
+    }
+    const text = await response.text().catch(() => '')
+    throw new Error(`SharePoint API error ${response.status}: ${text || response.statusText}`)
   }
 
   if (response.status === 204) return null
@@ -85,69 +55,107 @@ async function graphRequest(path, init = {}) {
 
 async function getSiteId() {
   if (siteIdCache) return siteIdCache
-  const trimmedPath = String(SHAREPOINT_SITE_PATH || '').replace(/^\/+/, '')
-  const data = await graphRequest(`/sites/${SHAREPOINT_HOSTNAME}:/${trimmedPath}`)
-  siteIdCache = data.id
+  
+  const siteUrl = `${SHAREPOINT_HOSTNAME}/${String(SHAREPOINT_SITE_PATH).replace(/^\/+/, '')}`
+  const data = await sharepointRequest(`/_api/site`)
+  
+  siteIdCache = data.Id
   return siteIdCache
 }
 
 async function getListId(siteId) {
   if (listIdCache) return listIdCache
-  const data = await graphRequest(`/sites/${siteId}/lists?$filter=displayName eq '${SHAREPOINT_LIST_NAME.replace(/'/g, "''")}'`)
+  
+  // Try to find existing list
+  const data = await sharepointRequest(
+    `/_api/web/lists?$filter=Title eq '${SHAREPOINT_LIST_NAME.replace(/'/g, "''")}'`
+  )
 
   const existing = Array.isArray(data?.value) ? data.value[0] : null
-  if (existing?.id) {
-    listIdCache = existing.id
+  if (existing?.Id) {
+    listIdCache = existing.Id
     return listIdCache
   }
 
-  const created = await graphRequest(`/sites/${siteId}/lists`, {
+  // Create new list if not found
+  const created = await sharepointRequest(`/_api/web/lists`, {
     method: 'POST',
+    headers: { 'X-RequestDigest': await getFormDigest() },
     body: JSON.stringify({
-      displayName: SHAREPOINT_LIST_NAME,
-      list: { template: 'genericList' },
-      columns: [
-        { name: 'subjectsJson', text: { allowMultipleLines: true } },
-        { name: 'behaviorsJson', text: { allowMultipleLines: true } },
-        { name: 'videosJson', text: { allowMultipleLines: true } },
-      ],
+      Title: SHAREPOINT_LIST_NAME,
+      BaseTemplate: 100,
+      Description: 'Shared state for Lab School Database',
     }),
   })
-  listIdCache = created.id
+  
+  listIdCache = created.Id
+
+  // Add columns if they don't exist
+  const columns = [
+    { Title: 'subjectsJson', FieldTypeKind: 3 },
+    { Title: 'behaviorsJson', FieldTypeKind: 3 },
+    { Title: 'videosJson', FieldTypeKind: 3 },
+  ]
+  
+  for (const col of columns) {
+    await sharepointRequest(
+      `/_api/web/lists(guid'${listIdCache}')/fields`,
+      {
+        method: 'POST',
+        headers: { 'X-RequestDigest': await getFormDigest() },
+        body: JSON.stringify(col),
+      }
+    ).catch(() => null) // Ignore if columns already exist
+  }
 
   return listIdCache
 }
 
-async function getSharedStateItem(siteId, listId) {
+async function getFormDigest() {
+  const response = await sharepointRequest(`/_api/contextinfo`, {
+    method: 'POST',
+  })
+  return response.FormDigestValue
+}
+
+async function getSharedStateItem(listId) {
   if (itemIdCache) {
-    const item = await graphRequest(`/sites/${siteId}/lists/${listId}/items/${itemIdCache}?expand=fields`).catch(() => null)
+    const item = await sharepointRequest(
+      `/_api/web/lists(guid'${listId}')/items(${itemIdCache})`
+    ).catch(() => null)
     if (item) return item
     itemIdCache = null
   }
 
-  const query = encodeURIComponent(`fields/Title eq '${SHARED_STATE_TITLE}'`)
-  const existing = await graphRequest(`/sites/${siteId}/lists/${listId}/items?$expand=fields&$filter=${query}`)
+  // Find existing item with Title 'SharedState'
+  const existing = await sharepointRequest(
+    `/_api/web/lists(guid'${listId}')/items?$filter=Title eq 'SharedState'`
+  )
   const item = Array.isArray(existing?.value) ? existing.value[0] : null
 
-  if (item?.id) {
-    itemIdCache = item.id
+  if (item?.Id) {
+    itemIdCache = item.Id
     return item
   }
 
-  const created = await graphRequest(`/sites/${siteId}/lists/${listId}/items`, {
-    method: 'POST',
-    body: JSON.stringify({
-      fields: {
-        Title: SHARED_STATE_TITLE,
+  // Create new item if not found
+  const digest = await getFormDigest()
+  const created = await sharepointRequest(
+    `/_api/web/lists(guid'${listId}')/items`,
+    {
+      method: 'POST',
+      headers: { 'X-RequestDigest': digest },
+      body: JSON.stringify({
+        Title: 'SharedState',
         subjectsJson: '[]',
         behaviorsJson: '[]',
         videosJson: '[]',
-      },
-    }),
-  })
+      }),
+    }
+  )
 
-  itemIdCache = created.id
-  return graphRequest(`/sites/${siteId}/lists/${listId}/items/${itemIdCache}?expand=fields`)
+  itemIdCache = created.Id
+  return sharepointRequest(`/_api/web/lists(guid'${listId}')/items(${itemIdCache})`)
 }
 
 function parseJsonArray(value, fallback) {
@@ -168,31 +176,46 @@ export async function loadSharedState(defaultState) {
 
   if (!isSharePointConfigured()) return fallback
 
-  const siteId = await getSiteId()
-  const listId = await getListId(siteId)
-  const item = await getSharedStateItem(siteId, listId)
-  const fields = item?.fields || {}
+  try {
+    const listId = await getListId()
+    const item = await getSharedStateItem(listId)
 
-  return {
-    subjects: parseJsonArray(fields.subjectsJson, fallback.subjects),
-    behaviors: parseJsonArray(fields.behaviorsJson, fallback.behaviors),
-    videos: parseJsonArray(fields.videosJson, fallback.videos),
+    return {
+      subjects: parseJsonArray(item.subjectsJson, fallback.subjects),
+      behaviors: parseJsonArray(item.behaviorsJson, fallback.behaviors),
+      videos: parseJsonArray(item.videosJson, fallback.videos),
+    }
+  } catch (err) {
+    console.error('Failed to load from SharePoint:', err)
+    return fallback
   }
 }
 
 export async function saveSharedState(state) {
   if (!isSharePointConfigured()) return
 
-  const siteId = await getSiteId()
-  const listId = await getListId(siteId)
-  const item = await getSharedStateItem(siteId, listId)
+  try {
+    const listId = await getListId()
+    const item = await getSharedStateItem(listId)
+    const digest = await getFormDigest()
 
-  await graphRequest(`/sites/${siteId}/lists/${listId}/items/${item.id}/fields`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      subjectsJson: JSON.stringify(state.subjects || []),
-      behaviorsJson: JSON.stringify(state.behaviors || []),
-      videosJson: JSON.stringify(state.videos || []),
-    }),
-  })
+    await sharepointRequest(
+      `/_api/web/lists(guid'${listId}')/items(${item.Id})`,
+      {
+        method: 'PATCH',
+        headers: {
+          'X-RequestDigest': digest,
+          'If-Match': '*',
+        },
+        body: JSON.stringify({
+          subjectsJson: JSON.stringify(state.subjects || []),
+          behaviorsJson: JSON.stringify(state.behaviors || []),
+          videosJson: JSON.stringify(state.videos || []),
+        }),
+      }
+    )
+  } catch (err) {
+    console.error('Failed to save to SharePoint:', err)
+    throw err
+  }
 }
