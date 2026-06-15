@@ -34,51 +34,51 @@ The app uses `base: '/tcfdlabschool.github.io/'` for project-site hosting on Git
 - Query-style review tables
 - Searchable data view
 - Admin lists for subjects and behaviors
-- Shared persistent data in SharePoint (Microsoft Graph)
+- Shared persistent data in Supabase
 - SharePoint folder links based on the recording date
 
-## Shared Database Setup (SharePoint)
+## Shared Database Setup (Supabase)
 
-This app is set up to store `subjects`, `behaviors`, and `videos` in a shared SharePoint list.
+This app stores `subjects`, `behaviors`, and `videos` in a single shared row in Supabase, so data is usable across browsers and devices.
 
-Important: direct browser requests from GitHub Pages to SharePoint are blocked by CORS/auth rules in most tenants. For true cross-device sync, the app must either:
+### 1) Create table and policies in Supabase SQL Editor
 
-- be hosted on the SharePoint origin itself, or
-- use a backend / Entra app registration / proxy that can talk to SharePoint securely.
+Run this SQL in your Supabase project:
 
-If the app is served from GitHub Pages without that extra hosting/auth layer, it will not be able to reliably read/write the shared list.
+```sql
+create table if not exists public.lab_school_state (
+  state_key text primary key,
+  subjects jsonb not null default '[]'::jsonb,
+  behaviors jsonb not null default '[]'::jsonb,
+  videos jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
 
-### 1) Register an app in Microsoft Entra ID (recommended for GitHub Pages)
+alter table public.lab_school_state enable row level security;
 
-- Create an app registration.
-- Add SPA redirect URIs:
-  - `http://localhost:5173`
-  - `https://ryanlay.github.io/tcfdlabschool.github.io/`
-- Grant Microsoft Graph delegated permission: `Sites.ReadWrite.All`
-- Grant admin consent for your tenant.
+create policy "public read" on public.lab_school_state
+for select using (true);
+
+create policy "public insert" on public.lab_school_state
+for insert with check (true);
+
+create policy "public update" on public.lab_school_state
+for update using (true) with check (true);
+```
 
 ### 2) Create local environment file
 
 Create `.env.local` in the project root:
 
 ```env
-VITE_AAD_CLIENT_ID=your-app-client-id
-VITE_AAD_TENANT_ID=your-tenant-id
-VITE_SHAREPOINT_HOSTNAME=thecenterfordiscovery.sharepoint.com
-VITE_SHAREPOINT_SITE_PATH=sites/LabSchool
-VITE_SHAREPOINT_LIST_NAME=LabSchoolAppState
+VITE_SUPABASE_URL=https://uqedhpsjugpnlzohearq.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_OvVPFSDDRNxQGnw8lIyXOA_KWB0G6GP
+VITE_SUPABASE_TABLE=lab_school_state
 ```
 
-### 3) SharePoint list used for app state
-
-The app auto-creates the list if it does not exist (named by `VITE_SHAREPOINT_LIST_NAME`) and stores one row titled `SharedState` containing JSON fields:
-
-- `subjectsJson`
-- `behaviorsJson`
-- `videosJson`
+If your URL is copied as `https://...supabase.co/rest/v1/`, use `https://...supabase.co` in `VITE_SUPABASE_URL`.
 
 ## Notes
 
-- GitHub Pages hosts static files only; cross-origin SharePoint writes are blocked unless you add an auth/proxy layer or host the app on SharePoint.
-- Users must be signed in with permitted Microsoft accounts to read/write shared data.
-- If you need, I can help switch this project to a supported backend path next.
+- The frontend must use the publishable/anon key only.
+- Never put the Supabase secret/service key in client code.

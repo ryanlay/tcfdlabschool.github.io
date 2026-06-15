@@ -177,7 +177,7 @@ function App() {
       try {
         if (!isSharePointConfigured()) {
           if (!cancelled) {
-            show('home', 'SharePoint is not configured. Add Azure/SharePoint environment settings.', true)
+            show('home', 'Supabase is not configured. Add Supabase environment settings.', true)
             setSubjects(defaultSubjects)
             setBehaviors(defaultBehaviors)
             setVideos(defaultVideos)
@@ -202,7 +202,7 @@ function App() {
       } catch (error) {
         if (!cancelled) {
           const detail = error instanceof Error ? error.message : 'Unknown error'
-          show('home', `Could not load from SharePoint: ${detail}`, true)
+          show('home', `Could not load from Supabase: ${detail}`, true)
           setSubjects(defaultSubjects)
           setBehaviors(defaultBehaviors)
           setVideos(defaultVideos)
@@ -232,7 +232,7 @@ function App() {
         await saveSharedState({ subjects, behaviors, videos })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Unknown error'
-        show('admin', `Save to SharePoint failed: ${detail}`, true)
+        show('admin', `Save to Supabase failed: ${detail}`, true)
       }
     }, 500)
 
@@ -995,7 +995,7 @@ function App() {
 
         <article className="card">
           <h2>Data Safety</h2>
-          <p className="muted">Primary storage is SharePoint (shared across devices). Export/import is an extra backup tool.</p>
+          <p className="muted">Primary storage is Supabase (shared across devices). Export/import is an extra backup tool.</p>
           <div className="button-row">
             <button type="button" onClick={exportAllData}>Export Backup (JSON)</button>
             <button type="button" className="secondary" onClick={openImportDialog}>Import Backup</button>
