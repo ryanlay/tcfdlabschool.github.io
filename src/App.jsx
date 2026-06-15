@@ -152,11 +152,11 @@ function App() {
   const [subjects, setSubjects] = useState(defaultSubjects)
   const [behaviors, setBehaviors] = useState(defaultBehaviors)
   const [videos, setVideos] = useState(defaultVideos)
-  const [status, setStatus] = useState({ home: '', intake: '', review: '', data: '', admin: '' })
+  const [status, setStatus] = useState({ home: '', recording: '', review: '', data: '', admin: '' })
 
   const [intakeStep, setIntakeStep] = useState(1)
   const [recordStartTime, setRecordStartTime] = useState(localInputValue())
-  const [durationMinutes, setDurationMinutes] = useState('20')
+  const [durationMinutes, setDurationMinutes] = useState('')
   const [videoNotes, setVideoNotes] = useState('')
   const [selectedSubjects, setSelectedSubjects] = useState(['CSH01', 'CSH02'])
   const [occurrenceMap, setOccurrenceMap] = useState({})
@@ -281,11 +281,11 @@ function App() {
   function resetIntake() {
     setIntakeStep(1)
     setRecordStartTime(localInputValue())
-    setDurationMinutes('20')
+    setDurationMinutes('')
     setVideoNotes('')
     setSelectedSubjects([])
     setOccurrenceMap({})
-    show('intake', '', false)
+    show('recording', '', false)
   }
 
   function toggleSubject(code) {
@@ -328,7 +328,7 @@ function App() {
   function handleSave(addAnother = false) {
     const minutes = Number(durationMinutes)
     if (!recordStartTime || !Number.isFinite(minutes) || minutes < 1 || selectedSubjects.length === 0) {
-      show('intake', 'Enter a start time, a duration, and at least one subject.', true)
+      show('recording', 'Enter a start time, a duration, and at least one subject.', true)
       return
     }
 
@@ -344,11 +344,11 @@ function App() {
     }
 
     setVideos((current) => [nextVideo, ...current])
-    show('intake', `Saved video ${nextVideo.id}.`, false)
+    show('recording', `Saved video ${nextVideo.id}.`, false)
 
     if (addAnother) {
       setRecordStartTime(localInputValue())
-      setDurationMinutes('20')
+      setDurationMinutes('')
       setVideoNotes('')
       setSelectedSubjects([])
       setOccurrenceMap({})
@@ -375,13 +375,12 @@ function App() {
     const nextSubject = {
       id: subjects.length ? Math.max(...subjects.map((subject) => subject.id)) + 1 : 1,
       subjectCode: code,
-      displayName: newSubjectName.trim() || code,
+      displayName: code,
       isActive: true,
     }
 
     setSubjects((current) => [nextSubject, ...current])
     setNewSubjectCode('')
-    setNewSubjectName('')
     show('admin', `Added subject ${code}.`, false)
   }
 
@@ -539,8 +538,8 @@ function App() {
         <section className="card">
           <div className="section-heading">
             <div>
-              <h2>Video Intake</h2>
-              <p className="muted">Step {intakeStep} of 3</p>
+              <h2>Video Recording</h2>
+                <p className="muted">Step {intakeStep} of 3</p>
             </div>
             <button type="button" onClick={resetIntake}>Reset</button>
           </div>
@@ -606,7 +605,7 @@ function App() {
           )}
 
           <div className="status" aria-live="polite">
-            {status.intake && <span className={status.intake.isError ? 'error' : 'success'}>{status.intake.text}</span>}
+            {status.recording && <span className={status.recording.isError ? 'error' : 'success'}>{status.recording.text}</span>}
           </div>
 
           <div className="button-row">
@@ -807,14 +806,10 @@ function App() {
         <section className="grid two-up">
           <article className="card">
             <h2>Subjects</h2>
-            <div className="form-grid">
+            <div className="form-grid single">
               <label>
                 Subject code
                 <input value={newSubjectCode} onChange={(event) => setNewSubjectCode(event.target.value)} placeholder="CSH04" />
-              </label>
-              <label>
-                Display name
-                <input value={newSubjectName} onChange={(event) => setNewSubjectName(event.target.value)} placeholder="Classroom Student 04" />
               </label>
             </div>
             <button type="button" className="primary" onClick={addSubject}>Add Subject</button>
