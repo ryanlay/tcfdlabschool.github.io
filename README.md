@@ -4,13 +4,12 @@ This is a React + Vite clone of the Lab School app, built to run as a static sit
 
 ## Live site
 
-- [https://tcfdlabschool.github.io/](https://tcfdlabschool.github.io/)
+- [https://ryanlay.github.io/tcfdlabschool.github.io/](https://ryanlay.github.io/tcfdlabschool.github.io/)
 
 ## Deployment
 
 - Repository: `https://github.com/ryanlay/tcfdlabschool.github.io`
 - GitHub Actions workflow: `.github/workflows/deploy.yml`
-- Custom domain file: `public/CNAME` (`tcfdlabschool.github.io`)
 - Deploy trigger: push to `main`
 
 ## Run locally
@@ -27,7 +26,7 @@ npm run dev
 npm run build
 ```
 
-The app uses `base: './'`, so the generated `dist/` folder can be hosted on `github.io` as a project site.
+The app uses `base: '/tcfdlabschool.github.io/'` for project-site hosting on GitHub Pages.
 
 ## Features
 
