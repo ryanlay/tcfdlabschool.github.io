@@ -1,6 +1,7 @@
 /**
- * SharePoint backend using localStorage fallback for local dev.
- * In production on GitHub Pages, user must have SharePoint site access.
+ * SharePoint backend using REST API with browser authentication.
+ * Primary: SharePoint (cross-device/cross-browser sync)
+ * Fallback: localStorage (offline only)
  */
 
 const SHAREPOINT_HOSTNAME = import.meta.env.VITE_SHAREPOINT_HOSTNAME
@@ -8,7 +9,12 @@ const SHAREPOINT_SITE_PATH = import.meta.env.VITE_SHAREPOINT_SITE_PATH
 const SHAREPOINT_LIST_NAME = import.meta.env.VITE_SHAREPOINT_LIST_NAME || 'LabSchoolAppState'
 
 const STORAGE_KEY = 'lab-school-db-state'
-let hasTriedSharePoint = false
+
+// Cache for list/item IDs (per session)
+let listIdCache = null
+let itemIdCache = null
+let formDigestCache = null
+let formDigestExpiry = 0
 
 export function isSharePointConfigured() {
   return Boolean(
@@ -27,7 +33,6 @@ function getBaseUrl() {
 
 /**
  * Direct SharePoint REST API call with browser authentication.
- * Browser will handle OAuth popup if needed on first request.
  */
 async function sharepointRequest(relativePath, init = {}) {
   const url = `${getBaseUrl()}${relativePath.startsWith('/') ? '' : '/'}${relativePath}`
@@ -41,58 +46,76 @@ async function sharepointRequest(relativePath, init = {}) {
     credentials: 'include', // Include cookies for browser auth
   }
 
-  console.log(`[SharePoint] ${init.method || 'GET'} ${url}`)
+  console.log(`[SP] ${(init.method || 'GET').padEnd(6)} ${url}`)
 
   const response = await fetch(url, options)
 
   if (!response.ok) {
-    // 401/403 typically means auth issue
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(
-        `SharePoint authentication required. Status: ${response.status}. `
-        + `You may need to sign in at ${getBaseUrl()} first.`
-      )
-    }
     const text = await response.text().catch(() => '')
-    throw new Error(`SharePoint API error ${response.status}: ${text || response.statusText}`)
+    const errorMsg = `${response.status}: ${text || response.statusText}`.substring(0, 100)
+    console.error(`[SP] ✗ ${errorMsg}`)
+    throw new Error(`SharePoint API error ${response.status}`)
   }
 
   if (response.status === 204) return null
-  return response.json()
+  const json = await response.json()
+  console.log(`[SP] ✓ Success`)
+  return json
 }
 
 /**
- * Get form digest for POST/PATCH operations (CSRF protection)
+ * Get or refresh form digest (CSRF token for POST/PATCH)
+ * Form digest expires after ~30 minutes
  */
 async function getFormDigest() {
+  const now = Date.now()
+  
+  // Return cached digest if still valid
+  if (formDigestCache && formDigestExpiry > now) {
+    console.log(`[SP] Using cached form digest`)
+    return formDigestCache
+  }
+
+  console.log(`[SP] Fetching new form digest...`)
   const response = await sharepointRequest('/_api/contextinfo', {
     method: 'POST',
   })
-  return response.FormDigestValue
+  
+  formDigestCache = response.FormDigestValue
+  formDigestExpiry = now + (28 * 60 * 1000) // Cache for 28 minutes
+  
+  return formDigestCache
 }
 
 /**
- * Find or create list
+ * Find or create the list
  */
 async function getListId() {
+  if (listIdCache) {
+    console.log(`[SP] Using cached list ID: ${listIdCache}`)
+    return listIdCache
+  }
+  
+  console.log(`[SP] Searching for list: ${SHAREPOINT_LIST_NAME}`)
+  
   // Try to find existing list
   try {
     const data = await sharepointRequest(
-      `/_api/web/lists?$filter=Title eq '${SHAREPOINT_LIST_NAME.replace(/'/g, "''")}'`
+      `/_api/web/lists?$filter=Title eq '${SHAREPOINT_LIST_NAME.replace(/'/g, "''")}'&$select=Id`
     )
 
-    const existing = Array.isArray(data?.value) ? data.value[0] : null
-    if (existing?.Id) {
-      console.log(`[SharePoint] Found existing list: ${existing.Id}`)
-      return existing.Id
+    if (Array.isArray(data?.value) && data.value.length > 0) {
+      listIdCache = data.value[0].Id
+      console.log(`[SP] Found existing list: ${listIdCache}`)
+      return listIdCache
     }
   } catch (err) {
-    console.warn('[SharePoint] Error searching for existing list:', err.message)
+    console.error(`[SP] Error searching for list:`, err.message)
     throw err
   }
 
   // Create new list if not found
-  console.log(`[SharePoint] Creating new list: ${SHAREPOINT_LIST_NAME}`)
+  console.log(`[SP] Creating new list: ${SHAREPOINT_LIST_NAME}`)
   const digest = await getFormDigest()
   
   const created = await sharepointRequest('/_api/web/lists', {
@@ -101,12 +124,13 @@ async function getListId() {
     body: JSON.stringify({
       __metadata: { type: 'SP.List' },
       Title: SHAREPOINT_LIST_NAME,
-      BaseTemplate: 100,
+      BaseTemplate: 100, // Generic list
       Description: 'Shared state for Lab School Database',
     }),
   })
   
-  console.log(`[SharePoint] Created new list: ${created.Id}`)
+  listIdCache = created.Id
+  console.log(`[SP] ✓ Created list: ${listIdCache}`)
 
   // Add columns
   const columns = [
@@ -119,48 +143,57 @@ async function getListId() {
     try {
       const colDigest = await getFormDigest()
       await sharepointRequest(
-        `/_api/web/lists(guid'${created.Id}')/fields`,
+        `/_api/web/lists(guid'${listIdCache}')/fields`,
         {
           method: 'POST',
           headers: { 'X-RequestDigest': colDigest },
           body: JSON.stringify({
             __metadata: { type: 'SP.Field' },
-            ...col,
+            FieldTypeKind: col.FieldTypeKind,
+            Title: col.Title,
           }),
         }
       )
-      console.log(`[SharePoint] Added column: ${col.Title}`)
+      console.log(`[SP] ✓ Added column: ${col.Title}`)
     } catch (err) {
-      console.warn(`[SharePoint] Could not add column ${col.Title}:`, err.message)
+      console.warn(`[SP] Column may already exist: ${col.Title}`)
     }
   }
 
-  return created.Id
+  return listIdCache
 }
 
 /**
  * Find or create the SharedState item
  */
 async function getSharedStateItem(listId) {
-  // Find existing item with Title 'SharedState'
+  if (itemIdCache) {
+    console.log(`[SP] Using cached item ID: ${itemIdCache}`)
+    return itemIdCache
+  }
+
+  console.log(`[SP] Searching for SharedState item...`)
+  
+  // Find existing item
   try {
     const existing = await sharepointRequest(
-      `/_api/web/lists(guid'${listId}')/items?$filter=Title eq 'SharedState'`
+      `/_api/web/lists(guid'${listId}')/items?$filter=Title eq 'SharedState'&$select=Id`
     )
-    const item = Array.isArray(existing?.value) ? existing.value[0] : null
-
-    if (item?.Id) {
-      console.log(`[SharePoint] Found existing item: ${item.Id}`)
-      return item
+    
+    if (Array.isArray(existing?.value) && existing.value.length > 0) {
+      itemIdCache = existing.value[0].Id
+      console.log(`[SP] Found existing item: ${itemIdCache}`)
+      return itemIdCache
     }
   } catch (err) {
-    console.warn('[SharePoint] Error searching for existing item:', err.message)
+    console.error(`[SP] Error searching for item:`, err.message)
     throw err
   }
 
-  // Create new item if not found
-  console.log('[SharePoint] Creating new SharedState item')
+  // Create new item
+  console.log(`[SP] Creating new SharedState item...`)
   const digest = await getFormDigest()
+  
   const created = await sharepointRequest(
     `/_api/web/lists(guid'${listId}')/items`,
     {
@@ -176,8 +209,9 @@ async function getSharedStateItem(listId) {
     }
   )
 
-  console.log(`[SharePoint] Created new item: ${created.Id}`)
-  return sharepointRequest(`/_api/web/lists(guid'${listId}')/items(${created.Id})`)
+  itemIdCache = created.Id
+  console.log(`[SP] ✓ Created item: ${itemIdCache}`)
+  return itemIdCache
 }
 
 function parseJsonArray(value, fallback) {
@@ -197,50 +231,48 @@ export async function loadSharedState(defaultState) {
   }
 
   if (!isSharePointConfigured()) {
-    console.log('[Storage] SharePoint not configured, using localStorage')
+    console.log('[Local] SharePoint not configured, using localStorage only')
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored) {
-        const parsed = JSON.parse(stored)
-        console.log('[Storage] Loaded from localStorage:', parsed)
-        return parsed
+        return JSON.parse(stored)
       }
     } catch (err) {
-      console.warn('[Storage] Error loading from localStorage:', err)
+      console.warn('[Local] Error loading from localStorage:', err)
     }
     return fallback
   }
 
-  // Try SharePoint first
-  if (!hasTriedSharePoint) {
-    try {
-      console.log('[SharePoint] Attempting to load from SharePoint...')
-      hasTriedSharePoint = true
-      
-      const listId = await getListId()
-      const item = await getSharedStateItem(listId)
+  // Try SharePoint FIRST (not as fallback)
+  try {
+    console.log('[SP] ===== LOAD FROM SHAREPOINT =====')
+    const listId = await getListId()
+    const itemId = await getSharedStateItem(listId)
 
-      const result = {
-        subjects: parseJsonArray(item.subjectsJson, fallback.subjects),
-        behaviors: parseJsonArray(item.behaviorsJson, fallback.behaviors),
-        videos: parseJsonArray(item.videosJson, fallback.videos),
+    const item = await sharepointRequest(
+      `/_api/web/lists(guid'${listId}')/items(${itemId})?$select=subjectsJson,behaviorsJson,videosJson`
+    )
+
+    const result = {
+      subjects: parseJsonArray(item.subjectsJson, fallback.subjects),
+      behaviors: parseJsonArray(item.behaviorsJson, fallback.behaviors),
+      videos: parseJsonArray(item.videosJson, fallback.videos),
+    }
+    console.log('[SP] ✓✓✓ LOADED FROM SHAREPOINT ✓✓✓', result)
+    return result
+  } catch (err) {
+    console.error('[SP] ✗✗✗ FAILED TO LOAD FROM SHAREPOINT ✗✗✗', err.message)
+    console.log('[Local] Falling back to localStorage')
+    
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        console.log('[Local] Loaded from localStorage:', parsed)
+        return parsed
       }
-      console.log('[SharePoint] ✓ Loaded from SharePoint:', result)
-      return result
-    } catch (err) {
-      console.error('[SharePoint] ✗ Failed to load:', err.message)
-      console.log('[Storage] Falling back to localStorage')
-      
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        if (stored) {
-          const parsed = JSON.parse(stored)
-          console.log('[Storage] Loaded from localStorage:', parsed)
-          return parsed
-        }
-      } catch (innerErr) {
-        console.warn('[Storage] Error loading from localStorage:', innerErr)
-      }
+    } catch (innerErr) {
+      console.warn('[Local] Error loading from localStorage:', innerErr)
     }
   }
 
@@ -248,45 +280,44 @@ export async function loadSharedState(defaultState) {
 }
 
 export async function saveSharedState(state) {
-  // Always save to localStorage for local dev/backup
+  // ALWAYS try SharePoint FIRST
+  if (isSharePointConfigured()) {
+    try {
+      console.log('[SP] ===== SAVE TO SHAREPOINT =====')
+      
+      const listId = await getListId()
+      const itemId = await getSharedStateItem(listId)
+      const digest = await getFormDigest()
+
+      await sharepointRequest(
+        `/_api/web/lists(guid'${listId}')/items(${itemId})`,
+        {
+          method: 'PATCH',
+          headers: {
+            'X-RequestDigest': digest,
+            'If-Match': '*',
+          },
+          body: JSON.stringify({
+            __metadata: { type: 'SP.ListItem' },
+            subjectsJson: JSON.stringify(state.subjects || []),
+            behaviorsJson: JSON.stringify(state.behaviors || []),
+            videosJson: JSON.stringify(state.videos || []),
+          }),
+        }
+      )
+      console.log('[SP] ✓✓✓ SAVED TO SHAREPOINT ✓✓✓')
+      return // Success - don't need fallback
+    } catch (err) {
+      console.error('[SP] ✗✗✗ FAILED TO SAVE TO SHAREPOINT ✗✗✗', err.message)
+    }
+  }
+
+  // Fallback to localStorage only if SharePoint failed
+  console.log('[Local] Saving to localStorage as fallback...')
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    console.log('[Storage] ✓ Saved to localStorage')
+    console.log('[Local] ✓ Saved to localStorage')
   } catch (err) {
-    console.warn('[Storage] Could not save to localStorage:', err)
-  }
-
-  if (!isSharePointConfigured()) {
-    return
-  }
-
-  // Try to also save to SharePoint if configured
-  try {
-    console.log('[SharePoint] Saving to SharePoint...')
-    
-    const listId = await getListId()
-    const item = await getSharedStateItem(listId)
-    const digest = await getFormDigest()
-
-    await sharepointRequest(
-      `/_api/web/lists(guid'${listId}')/items(${item.Id})`,
-      {
-        method: 'PATCH',
-        headers: {
-          'X-RequestDigest': digest,
-          'If-Match': '*',
-        },
-        body: JSON.stringify({
-          __metadata: { type: 'SP.ListItem' },
-          subjectsJson: JSON.stringify(state.subjects || []),
-          behaviorsJson: JSON.stringify(state.behaviors || []),
-          videosJson: JSON.stringify(state.videos || []),
-        }),
-      }
-    )
-    console.log('[SharePoint] ✓ Saved to SharePoint')
-  } catch (err) {
-    console.error('[SharePoint] ✗ Failed to save:', err.message)
-    console.log('[Storage] Data is safe in localStorage')
+    console.error('[Local] ✗ Failed to save to localStorage:', err)
   }
 }
