@@ -289,9 +289,22 @@ function App() {
   }
 
   function toggleSubject(code) {
-    setSelectedSubjects((current) =>
-      current.includes(code) ? current.filter((value) => value !== code) : [...current, code],
-    )
+    setSelectedSubjects((current) => {
+      const next = current.includes(code) ? current.filter((value) => value !== code) : [...current, code]
+      // Clean up occurrence map when subject is removed
+      if (!next.includes(code)) {
+        setOccurrenceMap((currentMap) => {
+          const updated = { ...currentMap }
+          for (const key in updated) {
+            if (key.startsWith(`${code}::`)) {
+              delete updated[key]
+            }
+          }
+          return updated
+        })
+      }
+      return next
+    })
   }
 
   function toggleOccurrence(subjectCode, behaviorName) {
@@ -561,7 +574,6 @@ function App() {
                       onChange={() => toggleSubject(subject.subjectCode)}
                     />
                     <span>{subject.subjectCode}</span>
-                    <small>{subject.displayName}</small>
                   </label>
                 ))}
               </div>
@@ -810,7 +822,7 @@ function App() {
               {subjects.map((subject) => (
                 <label key={subject.subjectCode} className="list-item">
                   <span>
-                    <strong>{subject.subjectCode}</strong> <span className="muted">{subject.displayName}</span>
+                    <strong>{subject.subjectCode}</strong>
                   </span>
                   <input
                     type="checkbox"
@@ -888,7 +900,6 @@ function App() {
                         onChange={() => toggleEditSubject(subject.subjectCode)}
                       />
                       <span>{subject.subjectCode}</span>
-                      <small>{subject.displayName}</small>
                     </label>
                   ))}
                 </div>
