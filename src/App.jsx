@@ -475,11 +475,13 @@ function App() {
   return (
     <div className="app-shell">
       <header className="brand-bar">
-        <img
-          className="brand-logo"
-          src={`${import.meta.env.BASE_URL}tcfdlogo.png`}
-          alt="The Center For Discovery"
-        />
+        <button type="button" className="brand-logo-button" onClick={() => setView(views.home)}>
+          <img
+            className="brand-logo"
+            src={`${import.meta.env.BASE_URL}tcfdlogo.png`}
+            alt="The Center For Discovery"
+          />
+        </button>
       </header>
 
       <header className="hero card">
@@ -492,7 +494,6 @@ function App() {
           <button type="button" className="primary" onClick={() => setView(views.intake)}>Add New Recording</button>
           <button type="button" onClick={() => setView(views.data)}>Review Data</button>
           <button type="button" onClick={() => setView(views.review)}>Run Queries</button>
-          <button type="button" className="secondary" onClick={() => setView(views.admin)}>Admin</button>
         </div>
       </header>
 
@@ -868,6 +869,14 @@ function App() {
                     <textarea rows="3" value={editVideoNotes} onChange={(event) => setEditVideoNotes(event.target.value)} placeholder="Optional notes" />
                   </label>
                 </div>
+                <label style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                  <input
+                    type="checkbox"
+                    checked={videos.find((v) => v.id === editingVideoId)?.uploadedToSharePoint || false}
+                    onChange={(event) => setVideos((current) => current.map((video) => video.id === editingVideoId ? { ...video, uploadedToSharePoint: event.target.checked } : video))}
+                  />
+                  <span>Uploaded to SharePoint</span>
+                </label>
 
                 <p className="muted" style={{marginTop: '12px', marginBottom: '4px'}}>Subjects present</p>
                 <div className="chip-grid">
@@ -947,7 +956,12 @@ function App() {
                       <td>{fmtDuration(row.durationSeconds)}</td>
                       <td>{row.subjectCodes.join(', ')}</td>
                       <td>{row.occurrences.map((o) => o.behaviorTypeName).join(', ') || '—'}</td>
-                      <td>{row.uploadedToSharePoint ? 'Yes' : 'No'}</td>
+                      <td>
+                        <label style={{display: 'flex', alignItems: 'center', gap: '4px'}}>
+                          <input type="checkbox" checked={row.uploadedToSharePoint} onChange={(event) => setVideos((current) => current.map((video) => video.id === row.id ? { ...video, uploadedToSharePoint: event.target.checked } : video))} />
+                          <span>{row.uploadedToSharePoint ? 'Yes' : 'No'}</span>
+                        </label>
+                      </td>
                       <td>
                         <div className="btn-row-inline">
                           <button type="button" className="btn-sm" onClick={() => startEditVideo(row)} disabled={editingVideoId !== null}>Edit</button>

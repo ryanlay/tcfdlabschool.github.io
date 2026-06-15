@@ -98,6 +98,17 @@ a:hover {
   margin-bottom: 14px;
 }
 
+.brand-logo-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.brand-logo-button:hover {
+  opacity: 0.8;
+}
+
 .brand-logo {
   display: block;
   width: min(280px, 72vw);
