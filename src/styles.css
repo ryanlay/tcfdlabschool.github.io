@@ -381,6 +381,16 @@ tbody tr:hover td {
   color: #991b1b;
 }
 
+.uploaded-yes {
+  color: #166534;
+  font-weight: 700;
+}
+
+.uploaded-no {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .list {
   display: grid;
   gap: 8px;

@@ -821,7 +821,16 @@ function App() {
               { key: 'durationSeconds', label: 'Duration', sortable: true, render: (row) => esc(fmtDuration(row.durationSeconds)) },
               { key: 'subjects', label: 'Subjects', sortable: false, render: (row) => esc(row.subjectCodes.join(', ')) },
               { key: 'behaviors', label: 'Behaviors', sortable: false, render: (row) => esc(row.occurrences.map((occurrence) => occurrence.behaviorTypeName).join(', ') || '—') },
-              { key: 'uploadedToSharePoint', label: 'Uploaded', sortable: true, render: (row) => (row.uploadedToSharePoint ? 'Yes' : 'No') },
+              {
+                key: 'uploadedToSharePoint',
+                label: 'Uploaded',
+                sortable: true,
+                render: (row) => (
+                  <span className={row.uploadedToSharePoint ? 'uploaded-yes' : 'uploaded-no'}>
+                    {row.uploadedToSharePoint ? 'Yes' : 'No'}
+                  </span>
+                ),
+              },
               { key: 'folder', label: 'Folder', sortable: false, render: (row) => <a href={sharePointFolderUrl(row.recordStartTime)} target="_blank" rel="noopener">View Folder</a> },
             ]}
             rows={dataRows}
