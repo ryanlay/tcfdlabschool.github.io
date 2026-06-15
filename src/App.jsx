@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-
-const STORAGE_KEYS = {
-  subjects: 'lbs-react-subjects',
-  behaviors: 'lbs-react-behaviors',
-  videos: 'lbs-react-videos',
-  videoBackups: 'lbs-react-video-backups',
-}
-
-const MAX_VIDEO_BACKUPS = 40
+import { isSharePointConfigured, loadSharedState, saveSharedState } from './sharepointBackend'
 
 const defaultSubjects = [
   { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true },
@@ -57,45 +49,6 @@ const views = {
   admin: 'admin',
 }
 
-function loadJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : fallback
-  } catch {
-    return fallback
-  }
-}
-
-function saveJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value))
-}
-
-function loadLatestVideoBackup() {
-  try {
-    const backups = loadJson(STORAGE_KEYS.videoBackups, [])
-    if (!Array.isArray(backups) || backups.length === 0) return null
-    const latestPayload = backups[0]?.payload
-    if (!latestPayload) return null
-    const parsed = JSON.parse(latestPayload)
-    return Array.isArray(parsed) ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-function saveVideoBackup(videos) {
-  try {
-    if (!Array.isArray(videos)) return
-    const payload = JSON.stringify(videos)
-    const backups = loadJson(STORAGE_KEYS.videoBackups, [])
-    const previous = Array.isArray(backups) ? backups : []
-    if (previous[0]?.payload === payload) return
-
-    const next = [{ at: new Date().toISOString(), payload }, ...previous].slice(0, MAX_VIDEO_BACKUPS)
-    localStorage.setItem(STORAGE_KEYS.videoBackups, JSON.stringify(next))
-  } catch {
-  }
-}
 
 function localInputValue(date = new Date()) {
   const copy = new Date(date)
@@ -214,25 +167,78 @@ function App() {
   const [editVideoOccurrenceMap, setEditVideoOccurrenceMap] = useState({})
   const [adminLogSort, setAdminLogSort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
   const importFileInputRef = useRef(null)
+  const hasHydratedFromBackendRef = useRef(false)
+  const saveTimerRef = useRef(null)
 
   useEffect(() => {
-    const storedSubjects = loadJson(STORAGE_KEYS.subjects, null)
-    const storedBehaviors = loadJson(STORAGE_KEYS.behaviors, null)
-    const storedVideos = loadJson(STORAGE_KEYS.videos, null)
-    const backupVideos = loadLatestVideoBackup()
+    let cancelled = false
 
-    setSubjects(Array.isArray(storedSubjects) && storedSubjects.length ? storedSubjects : defaultSubjects)
-    setBehaviors(Array.isArray(storedBehaviors) && storedBehaviors.length ? storedBehaviors : defaultBehaviors)
-    setVideos(Array.isArray(storedVideos) ? storedVideos : (backupVideos || defaultVideos))
-    setReady(true)
+    async function initialize() {
+      try {
+        if (!isSharePointConfigured()) {
+          if (!cancelled) {
+            show('home', 'SharePoint is not configured. Add Azure/SharePoint environment settings.', true)
+            setSubjects(defaultSubjects)
+            setBehaviors(defaultBehaviors)
+            setVideos(defaultVideos)
+            setReady(true)
+          }
+          return
+        }
+
+        const state = await loadSharedState({
+          subjects: defaultSubjects,
+          behaviors: defaultBehaviors,
+          videos: defaultVideos,
+        })
+
+        if (!cancelled) {
+          setSubjects(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects)
+          setBehaviors(Array.isArray(state.behaviors) && state.behaviors.length ? state.behaviors : defaultBehaviors)
+          setVideos(Array.isArray(state.videos) ? state.videos : defaultVideos)
+          hasHydratedFromBackendRef.current = true
+          setReady(true)
+        }
+      } catch {
+        if (!cancelled) {
+          show('home', 'Could not load from SharePoint. Check sign-in and permissions.', true)
+          setSubjects(defaultSubjects)
+          setBehaviors(defaultBehaviors)
+          setVideos(defaultVideos)
+          setReady(true)
+        }
+      }
+    }
+
+    initialize()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
     if (!ready) return
-    saveJson(STORAGE_KEYS.subjects, subjects)
-    saveJson(STORAGE_KEYS.behaviors, behaviors)
-    saveJson(STORAGE_KEYS.videos, videos)
-    saveVideoBackup(videos)
+    if (!hasHydratedFromBackendRef.current) return
+    if (!isSharePointConfigured()) return
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await saveSharedState({ subjects, behaviors, videos })
+      } catch {
+        show('admin', 'Save to SharePoint failed. Check connectivity and permissions.', true)
+      }
+    }, 500)
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+      }
+    }
   }, [ready, subjects, behaviors, videos])
 
   const activeSubjects = useMemo(() => subjects.filter((subject) => subject.isActive), [subjects])
@@ -583,18 +589,6 @@ function App() {
     } finally {
       event.target.value = ''
     }
-  }
-
-  function restoreLatestVideoBackup() {
-    const latest = loadLatestVideoBackup()
-    if (!latest) {
-      show('admin', 'No backup snapshot found.', true)
-      return
-    }
-    if (!window.confirm(`Restore latest backup with ${latest.length} videos?`)) return
-    setVideos(latest)
-    setEditingVideoId(null)
-    show('admin', `Restored backup with ${latest.length} videos.`, false)
   }
 
   function toggleEditSubject(code) {
@@ -999,11 +993,10 @@ function App() {
 
         <article className="card">
           <h2>Data Safety</h2>
-          <p className="muted">Use backups to protect entries across browser profiles and devices.</p>
+          <p className="muted">Primary storage is SharePoint (shared across devices). Export/import is an extra backup tool.</p>
           <div className="button-row">
             <button type="button" onClick={exportAllData}>Export Backup (JSON)</button>
             <button type="button" className="secondary" onClick={openImportDialog}>Import Backup</button>
-            <button type="button" className="secondary" onClick={restoreLatestVideoBackup}>Restore Latest Local Snapshot</button>
           </div>
           <input
             ref={importFileInputRef}
