@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const STORAGE_KEYS = {
   subjects: 'lbs-react-subjects',
   behaviors: 'lbs-react-behaviors',
   videos: 'lbs-react-videos',
+  videoBackups: 'lbs-react-video-backups',
 }
+
+const MAX_VIDEO_BACKUPS = 40
 
 const defaultSubjects = [
   { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true },
@@ -65,6 +68,33 @@ function loadJson(key, fallback) {
 
 function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value))
+}
+
+function loadLatestVideoBackup() {
+  try {
+    const backups = loadJson(STORAGE_KEYS.videoBackups, [])
+    if (!Array.isArray(backups) || backups.length === 0) return null
+    const latestPayload = backups[0]?.payload
+    if (!latestPayload) return null
+    const parsed = JSON.parse(latestPayload)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function saveVideoBackup(videos) {
+  try {
+    if (!Array.isArray(videos)) return
+    const payload = JSON.stringify(videos)
+    const backups = loadJson(STORAGE_KEYS.videoBackups, [])
+    const previous = Array.isArray(backups) ? backups : []
+    if (previous[0]?.payload === payload) return
+
+    const next = [{ at: new Date().toISOString(), payload }, ...previous].slice(0, MAX_VIDEO_BACKUPS)
+    localStorage.setItem(STORAGE_KEYS.videoBackups, JSON.stringify(next))
+  } catch {
+  }
 }
 
 function localInputValue(date = new Date()) {
@@ -183,15 +213,17 @@ function App() {
   const [editVideoSubjects, setEditVideoSubjects] = useState([])
   const [editVideoOccurrenceMap, setEditVideoOccurrenceMap] = useState({})
   const [adminLogSort, setAdminLogSort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
+  const importFileInputRef = useRef(null)
 
   useEffect(() => {
     const storedSubjects = loadJson(STORAGE_KEYS.subjects, null)
     const storedBehaviors = loadJson(STORAGE_KEYS.behaviors, null)
     const storedVideos = loadJson(STORAGE_KEYS.videos, null)
+    const backupVideos = loadLatestVideoBackup()
 
     setSubjects(Array.isArray(storedSubjects) && storedSubjects.length ? storedSubjects : defaultSubjects)
     setBehaviors(Array.isArray(storedBehaviors) && storedBehaviors.length ? storedBehaviors : defaultBehaviors)
-    setVideos(Array.isArray(storedVideos) ? storedVideos : defaultVideos)
+    setVideos(Array.isArray(storedVideos) ? storedVideos : (backupVideos || defaultVideos))
     setReady(true)
   }, [])
 
@@ -200,6 +232,7 @@ function App() {
     saveJson(STORAGE_KEYS.subjects, subjects)
     saveJson(STORAGE_KEYS.behaviors, behaviors)
     saveJson(STORAGE_KEYS.videos, videos)
+    saveVideoBackup(videos)
   }, [ready, subjects, behaviors, videos])
 
   const activeSubjects = useMemo(() => subjects.filter((subject) => subject.isActive), [subjects])
@@ -494,6 +527,74 @@ function App() {
     setVideos((current) => current.filter((video) => video.id !== videoId))
     if (editingVideoId === videoId) setEditingVideoId(null)
     show('admin', `Video ${videoId} deleted.`, false)
+  }
+
+  function exportAllData() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      subjects,
+      behaviors,
+      videos,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    anchor.href = url
+    anchor.download = `lab-school-recordings-backup-${stamp}.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+    show('admin', 'Backup file downloaded.', false)
+  }
+
+  function openImportDialog() {
+    importFileInputRef.current?.click()
+  }
+
+  async function importAllData(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      const nextSubjects = Array.isArray(parsed?.subjects) ? parsed.subjects : null
+      const nextBehaviors = Array.isArray(parsed?.behaviors) ? parsed.behaviors : null
+      const nextVideos = Array.isArray(parsed?.videos) ? parsed.videos : null
+
+      if (!nextSubjects || !nextBehaviors || !nextVideos) {
+        show('admin', 'Invalid backup file format.', true)
+        return
+      }
+
+      if (!window.confirm(`Import backup from ${file.name}? This will replace current on-screen data.`)) {
+        return
+      }
+
+      setSubjects(nextSubjects)
+      setBehaviors(nextBehaviors)
+      setVideos(nextVideos)
+      setEditingVideoId(null)
+      show('admin', `Imported backup: ${nextVideos.length} videos loaded.`, false)
+    } catch {
+      show('admin', 'Could not import backup file.', true)
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  function restoreLatestVideoBackup() {
+    const latest = loadLatestVideoBackup()
+    if (!latest) {
+      show('admin', 'No backup snapshot found.', true)
+      return
+    }
+    if (!window.confirm(`Restore latest backup with ${latest.length} videos?`)) return
+    setVideos(latest)
+    setEditingVideoId(null)
+    show('admin', `Restored backup with ${latest.length} videos.`, false)
   }
 
   function toggleEditSubject(code) {
@@ -895,6 +996,23 @@ function App() {
             </div>
           </article>
         </section>
+
+        <article className="card">
+          <h2>Data Safety</h2>
+          <p className="muted">Use backups to protect entries across browser profiles and devices.</p>
+          <div className="button-row">
+            <button type="button" onClick={exportAllData}>Export Backup (JSON)</button>
+            <button type="button" className="secondary" onClick={openImportDialog}>Import Backup</button>
+            <button type="button" className="secondary" onClick={restoreLatestVideoBackup}>Restore Latest Local Snapshot</button>
+          </div>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={importAllData}
+            style={{ display: 'none' }}
+          />
+        </article>
 
         <article className="card">
           <h2>Log Entries</h2>
