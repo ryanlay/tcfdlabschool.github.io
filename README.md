@@ -39,9 +39,16 @@ The app uses `base: '/tcfdlabschool.github.io/'` for project-site hosting on Git
 
 ## Shared Database Setup (SharePoint)
 
-This app now stores `subjects`, `behaviors`, and `videos` in a shared SharePoint list so users across devices see the same data.
+This app is set up to store `subjects`, `behaviors`, and `videos` in a shared SharePoint list.
 
-### 1) Register an app in Microsoft Entra ID
+Important: direct browser requests from GitHub Pages to SharePoint are blocked by CORS/auth rules in most tenants. For true cross-device sync, the app must either:
+
+- be hosted on the SharePoint origin itself, or
+- use a backend / Entra app registration / proxy that can talk to SharePoint securely.
+
+If the app is served from GitHub Pages without that extra hosting/auth layer, it will not be able to reliably read/write the shared list.
+
+### 1) Register an app in Microsoft Entra ID (recommended for GitHub Pages)
 
 - Create an app registration.
 - Add SPA redirect URIs:
@@ -72,5 +79,6 @@ The app auto-creates the list if it does not exist (named by `VITE_SHAREPOINT_LI
 
 ## Notes
 
-- GitHub Pages hosts static files only; runtime data is now read/written through Microsoft Graph to SharePoint.
+- GitHub Pages hosts static files only; cross-origin SharePoint writes are blocked unless you add an auth/proxy layer or host the app on SharePoint.
 - Users must be signed in with permitted Microsoft accounts to read/write shared data.
+- If you need, I can help switch this project to a supported backend path next.
