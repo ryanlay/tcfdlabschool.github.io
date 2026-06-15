@@ -199,9 +199,10 @@ function App() {
           hasHydratedFromBackendRef.current = true
           setReady(true)
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          show('home', 'Could not load from SharePoint. Check sign-in and permissions.', true)
+          const detail = error instanceof Error ? error.message : 'Unknown error'
+          show('home', `Could not load from SharePoint: ${detail}`, true)
           setSubjects(defaultSubjects)
           setBehaviors(defaultBehaviors)
           setVideos(defaultVideos)
@@ -229,8 +230,9 @@ function App() {
     saveTimerRef.current = setTimeout(async () => {
       try {
         await saveSharedState({ subjects, behaviors, videos })
-      } catch {
-        show('admin', 'Save to SharePoint failed. Check connectivity and permissions.', true)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unknown error'
+        show('admin', `Save to SharePoint failed: ${detail}`, true)
       }
     }, 500)
 
