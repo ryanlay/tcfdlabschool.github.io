@@ -74,8 +74,10 @@ function sharePointFolderUrl(isoDate) {
   const date = new Date(isoDate)
   const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const monthName = date.toLocaleString('en-US', { month: 'long' })
+  const monthFolder = `${mm} ${monthName}`
   const dd = String(date.getDate()).padStart(2, '0')
-  return `https://thecenterfordiscovery.sharepoint.com/:f:/r/sites/LabSchool/Shared%20Documents/Videos/${yyyy}/${mm}/${dd}?csf=1&web=1`
+  return `https://thecenterfordiscovery.sharepoint.com/:f:/r/sites/LabSchool/Shared%20Documents/Videos/${yyyy}/${encodeURIComponent(monthFolder)}/${dd}?csf=1&web=1`
 }
 
 function sortRows(rows, sortCol, sortDir, getter) {
