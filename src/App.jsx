@@ -1,6 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isSharePointConfigured, loadSharedState, saveSharedState, StaleWriteError } from './sharepointBackend'
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Transient network blips (Wi-Fi reconnecting after sleep, a momentary drop, etc.) surface as
+// "TypeError: Failed to fetch" and shouldn't require the user to notice an error banner and click
+// Retry themselves. Give the initial load a few quick automatic attempts before giving up.
+async function loadSharedStateWithRetry(defaultState, attempts = 3, delayMs = 800) {
+  let lastError
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await loadSharedState(defaultState)
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) await wait(delayMs * attempt)
+    }
+  }
+  throw lastError
+}
+
 const defaultSubjects = [
   { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, personId: null, targetBehaviors: [] },
   { id: 2, subjectCode: 'CSH02', displayName: 'Classroom Student 02', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, personId: null, targetBehaviors: [] },
@@ -403,7 +423,7 @@ function App() {
         return
       }
 
-      const state = await loadSharedState({
+      const state = await loadSharedStateWithRetry({
         subjects: defaultSubjects,
         behaviors: defaultBehaviors,
         videos: defaultVideos,
