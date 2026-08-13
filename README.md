@@ -30,10 +30,12 @@ The app uses `base: '/tcfdlabschool.github.io/'` for project-site hosting on Git
 
 ## Features
 
-- Intake wizard with subjects and behavior selection
+- Intake wizard with subjects and behavior selection, with second-precision recording start times
 - Query-style review tables
 - Searchable data view
+- Subject Profile: historical review of subjects with Person ID, date of birth, Lab School start/end dates, and a validated set of 20 target behaviors — includes a pre-seeded historical roster (subject codes `S01`-`S23`, `AS01`-`AS15`, `RS01`-`RS04`) with known Person IDs, additively merged in on load without overwriting existing data
 - Admin lists for subjects and behaviors
+- Export/Import JSON backup tool (Admin ▸ Data Safety) as a manual backup/restore option alongside Supabase
 - Shared persistent data in Supabase
 - SharePoint folder links based on the recording date
 
