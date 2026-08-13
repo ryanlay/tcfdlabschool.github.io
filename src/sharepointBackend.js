@@ -6,10 +6,23 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publisha
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || 'lab_school_state'
 const SUPABASE_STATE_KEY = 'shared'
 
+// A blocked/blackholed connection (e.g. a firewall silently dropping packets instead of
+// rejecting the connection) can otherwise hang for a very long time before the browser gives up.
+// Force every Supabase request to fail fast so retries actually help instead of compounding into
+// a multi-minute wait.
+function fetchWithTimeout(url, options, timeoutMs = 6000) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId))
+}
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
+  },
+  global: {
+    fetch: fetchWithTimeout,
   },
 })
 

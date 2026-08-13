@@ -8,7 +8,7 @@ function wait(ms) {
 // Transient network blips (Wi-Fi reconnecting after sleep, a momentary drop, etc.) surface as
 // "TypeError: Failed to fetch" and shouldn't require the user to notice an error banner and click
 // Retry themselves. Give the initial load a few quick automatic attempts before giving up.
-async function loadSharedStateWithRetry(defaultState, attempts = 3, delayMs = 800) {
+async function loadSharedStateWithRetry(defaultState, attempts = 2, delayMs = 500) {
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
