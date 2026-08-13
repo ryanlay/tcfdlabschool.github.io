@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { isSharePointConfigured, loadSharedState, saveSharedState } from './sharepointBackend'
+import { isSharePointConfigured, loadSharedState, saveSharedState, StaleWriteError } from './sharepointBackend'
 
 const defaultSubjects = [
   { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, personId: null, targetBehaviors: [] },
@@ -340,7 +340,7 @@ function App() {
   const [subjects, setSubjects] = useState(defaultSubjects)
   const [behaviors, setBehaviors] = useState(defaultBehaviors)
   const [videos, setVideos] = useState(defaultVideos)
-  const [status, setStatus] = useState({ home: '', recording: '', review: '', data: '', admin: '', profile: '' })
+  const [status, setStatus] = useState({ home: '', recording: '', review: '', data: '', admin: '', profile: '', conflict: '' })
 
   const [intakeStep, setIntakeStep] = useState(1)
   const [recordStartTime, setRecordStartTime] = useState(localInputValue())
@@ -384,10 +384,15 @@ function App() {
   const importFileInputRef = useRef(null)
   const hasHydratedFromBackendRef = useRef(false)
   const saveTimerRef = useRef(null)
+  // Tracks the `updated_at` this tab last saw from Supabase. Every save is checked against the
+  // server's CURRENT updated_at first - if it no longer matches (another tab/device saved since),
+  // the save is refused (StaleWriteError) instead of silently clobbering that newer data.
+  const updatedAtRef = useRef(null)
   const [loading, setLoading] = useState(false)
 
   const initialize = useCallback(async () => {
     setLoading(true)
+    show('conflict', '', false)
     try {
       if (!isSharePointConfigured()) {
         show('home', 'Supabase is not configured. Add Supabase environment settings.', true)
@@ -407,6 +412,7 @@ function App() {
       setSubjects(withHistoricalRoster(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects))
       setBehaviors(Array.isArray(state.behaviors) && state.behaviors.length ? state.behaviors : defaultBehaviors)
       setVideos(Array.isArray(state.videos) ? state.videos : defaultVideos)
+      updatedAtRef.current = state.updatedAt ?? null
       hasHydratedFromBackendRef.current = true
       setReady(true)
       show('home', '', false)
@@ -446,9 +452,14 @@ function App() {
 
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await saveSharedState({ subjects, behaviors, videos })
+        const saved = await saveSharedState({ subjects, behaviors, videos }, { expectedUpdatedAt: updatedAtRef.current })
+        updatedAtRef.current = saved.updatedAt
         show('admin', 'Saved to Supabase.', false)
       } catch (error) {
+        if (error instanceof StaleWriteError) {
+          show('conflict', `${error.message} (Your most recent change on this device was NOT saved.)`, true)
+          return
+        }
         const detail = error instanceof Error ? error.message : 'Unknown error'
         show('admin', `Save to Supabase failed: ${detail}`, true)
       }
@@ -898,13 +909,27 @@ function App() {
           clearTimeout(saveTimerRef.current)
         }
         // Save immediately (awaited) instead of relying on the debounced auto-save effect,
-        // so the import can't be lost if the tab is closed right after confirming.
-        await saveSharedState({ subjects: rosteredSubjects, behaviors: nextBehaviors, videos: nextVideos })
+        // so the import can't be lost if the tab is closed right after confirming. Still checked
+        // against the server's current updated_at - if someone else saved more recent changes
+        // since this tab last loaded, we refuse to blindly overwrite them.
+        const saved = await saveSharedState(
+          { subjects: rosteredSubjects, behaviors: nextBehaviors, videos: nextVideos },
+          { expectedUpdatedAt: updatedAtRef.current },
+        )
+        updatedAtRef.current = saved.updatedAt
         show('admin', `Imported and saved to Supabase: ${nextVideos.length} videos loaded.`, false)
       } else {
         show('admin', `Imported backup: ${nextVideos.length} videos loaded (not saved — Supabase not configured).`, false)
       }
     } catch (error) {
+      if (error instanceof StaleWriteError) {
+        show(
+          'admin',
+          `Import NOT saved: someone else saved changes to the shared data since this page loaded. Click Retry on the home screen to reload the latest data, then try the import again.`,
+          true,
+        )
+        return
+      }
       const detail = error instanceof Error ? error.message : 'Unknown error'
       show('admin', `Could not import backup file: ${detail}`, true)
     } finally {
@@ -945,6 +970,15 @@ function App() {
           />
         </button>
       </header>
+
+      {status.conflict && (
+        <div className="card" style={{ borderColor: '#c0392b', background: '#fdecea', marginBottom: '16px' }}>
+          <span className="error">{status.conflict.text}</span>
+          <button type="button" onClick={initialize} disabled={loading} style={{ marginLeft: '12px' }}>
+            {loading ? 'Reloading…' : 'Reload latest data'}
+          </button>
+        </div>
+      )}
 
       <header className="hero card">
         <div>
