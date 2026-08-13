@@ -2,10 +2,66 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isSharePointConfigured, loadSharedState, saveSharedState } from './sharepointBackend'
 
 const defaultSubjects = [
-  { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true },
-  { id: 2, subjectCode: 'CSH02', displayName: 'Classroom Student 02', isActive: true },
-  { id: 3, subjectCode: 'CSH03', displayName: 'Classroom Student 03', isActive: true },
+  { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, targetBehaviors: [] },
+  { id: 2, subjectCode: 'CSH02', displayName: 'Classroom Student 02', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, targetBehaviors: [] },
+  { id: 3, subjectCode: 'CSH03', displayName: 'Classroom Student 03', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, targetBehaviors: [] },
 ]
+
+// Validated list of target behaviors used on Subject historical profiles.
+// Kept separate from `behaviors` (used for per-video behavior-occurrence logging).
+const targetBehaviorOptions = [
+  'Aggression',
+  'Self-injury',
+  'Elopement',
+  'Pica',
+  'Disruptive Behaviors',
+  'Mouthing',
+  'Impulsivity',
+  'Agitation',
+  'Refusal Behavior',
+  'Off-Task Behavior',
+  'Property Destruction',
+  'Ritualistic Behavior',
+  'Unsanitary Behavior',
+  'Sensory Stimulation',
+  'Stereotypy/Repetitive Behavior',
+  'Inappropriate Social Behavior',
+  'Inappropriate Touch',
+  'Sexually Inappropriate Behavior',
+  'Disrobing',
+  'Food Stealing',
+]
+
+// Historical subject roster to make available for profile lookup/entry alongside any existing subjects.
+const historicalSubjectCodes = [
+  'S01', 'S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10',
+  'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18', 'S19', 'S20',
+  'S21', 'S22', 'S23',
+  'AS01', 'AS02', 'AS03', 'AS04', 'AS05', 'AS06', 'AS07', 'AS08', 'AS09', 'AS10',
+  'AS11', 'AS12', 'AS13', 'AS14', 'AS15',
+  'RS01', 'RS02', 'RS03', 'RS04',
+]
+
+// Additively merges the historical roster into an existing subjects list, without touching
+// or removing any subjects/data that are already there.
+function withHistoricalRoster(existingSubjects) {
+  const existingCodes = new Set(existingSubjects.map((subject) => subject.subjectCode.toUpperCase()))
+  const missing = historicalSubjectCodes.filter((code) => !existingCodes.has(code.toUpperCase()))
+  if (missing.length === 0) return existingSubjects
+
+  let nextId = existingSubjects.length ? Math.max(...existingSubjects.map((subject) => subject.id)) + 1 : 1
+  const additions = missing.map((code) => ({
+    id: nextId++,
+    subjectCode: code,
+    displayName: code,
+    isActive: true,
+    dateOfBirth: null,
+    labSchoolStartDate: null,
+    labSchoolEndDate: null,
+    targetBehaviors: [],
+  }))
+  return [...existingSubjects, ...additions]
+}
 
 const defaultBehaviors = [
   { id: 1, name: 'Aggression', isActive: true },
@@ -246,7 +302,7 @@ function App() {
   const [subjects, setSubjects] = useState(defaultSubjects)
   const [behaviors, setBehaviors] = useState(defaultBehaviors)
   const [videos, setVideos] = useState(defaultVideos)
-  const [status, setStatus] = useState({ home: '', recording: '', review: '', data: '', admin: '' })
+  const [status, setStatus] = useState({ home: '', recording: '', review: '', data: '', admin: '', profile: '' })
 
   const [intakeStep, setIntakeStep] = useState(1)
   const [recordStartTime, setRecordStartTime] = useState(localInputValue())
@@ -269,6 +325,15 @@ function App() {
   const [newSubjectName, setNewSubjectName] = useState('')
   const [newBehaviorName, setNewBehaviorName] = useState('')
 
+  // Subject historical profile
+  const [profileSubjectCode, setProfileSubjectCode] = useState('')
+  const [profileLoaded, setProfileLoaded] = useState(false)
+  const [profileDob, setProfileDob] = useState('')
+  const [profileStartDate, setProfileStartDate] = useState('')
+  const [profileEndDate, setProfileEndDate] = useState('')
+  const [profileTargetBehaviors, setProfileTargetBehaviors] = useState([])
+  const [newProfileSubjectCode, setNewProfileSubjectCode] = useState('')
+
   // Log entry editing
   const [editingVideoId, setEditingVideoId] = useState(null)
   const [editVideoStart, setEditVideoStart] = useState('')
@@ -289,7 +354,7 @@ function App() {
         if (!isSharePointConfigured()) {
           if (!cancelled) {
             show('home', 'Supabase is not configured. Add Supabase environment settings.', true)
-            setSubjects(defaultSubjects)
+            setSubjects(withHistoricalRoster(defaultSubjects))
             setBehaviors(defaultBehaviors)
             setVideos(defaultVideos)
             setReady(true)
@@ -304,7 +369,7 @@ function App() {
         })
 
         if (!cancelled) {
-          setSubjects(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects)
+          setSubjects(withHistoricalRoster(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects))
           setBehaviors(Array.isArray(state.behaviors) && state.behaviors.length ? state.behaviors : defaultBehaviors)
           setVideos(Array.isArray(state.videos) ? state.videos : defaultVideos)
           hasHydratedFromBackendRef.current = true
@@ -314,7 +379,7 @@ function App() {
         if (!cancelled) {
           const detail = error instanceof Error ? error.message : 'Unknown error'
           show('home', `Could not load from Supabase: ${detail}`, true)
-          setSubjects(defaultSubjects)
+          setSubjects(withHistoricalRoster(defaultSubjects))
           setBehaviors(defaultBehaviors)
           setVideos(defaultVideos)
           setReady(true)
@@ -376,6 +441,20 @@ function App() {
       setQ3Subject(q3SubjectOptions[0])
     }
   }, [q3SubjectOptions, q3Subject])
+
+  // Historical review isn't limited to currently-active subjects, so this list is unfiltered.
+  const profileSubjectOptions = useMemo(
+    () => [...subjects].sort((left, right) => left.subjectCode.localeCompare(right.subjectCode, undefined, { numeric: true, sensitivity: 'base' })),
+    [subjects],
+  )
+  const profileVideoCount = useMemo(
+    () => videos.filter((video) => video.subjectCodes.includes(profileSubjectCode)).length,
+    [videos, profileSubjectCode],
+  )
+  const profileOccurrenceCount = useMemo(
+    () => videos.reduce((total, video) => total + video.occurrences.filter((occurrence) => occurrence.subjectCode === profileSubjectCode).length, 0),
+    [videos, profileSubjectCode],
+  )
 
   useEffect(() => {
     setSelectedSubjects((current) => current.filter((subjectCode) => activeSubjectCodeSet.has(subjectCode)))
@@ -563,11 +642,81 @@ function App() {
       subjectCode: code,
       displayName: code,
       isActive: true,
+      dateOfBirth: null,
+      labSchoolStartDate: null,
+      labSchoolEndDate: null,
+      targetBehaviors: [],
     }
 
     setSubjects((current) => [nextSubject, ...current])
     setNewSubjectCode('')
     show('admin', `Added subject ${code}.`, false)
+  }
+
+  function loadSubjectProfile() {
+    if (!profileSubjectCode) return show('profile', 'Select a subject first.', true)
+
+    const subject = subjects.find((entry) => entry.subjectCode === profileSubjectCode)
+    if (!subject) return show('profile', 'Subject not found.', true)
+
+    setProfileDob(subject.dateOfBirth ? subject.dateOfBirth.slice(0, 10) : '')
+    setProfileStartDate(subject.labSchoolStartDate ? subject.labSchoolStartDate.slice(0, 10) : '')
+    setProfileEndDate(subject.labSchoolEndDate ? subject.labSchoolEndDate.slice(0, 10) : '')
+    setProfileTargetBehaviors(Array.isArray(subject.targetBehaviors) ? subject.targetBehaviors : [])
+    setProfileLoaded(true)
+    show('profile', '', false)
+  }
+
+  function toggleProfileTargetBehavior(name) {
+    setProfileTargetBehaviors((current) => (current.includes(name) ? current.filter((item) => item !== name) : [...current, name]))
+  }
+
+  function saveSubjectProfile() {
+    if (!profileSubjectCode) return show('profile', 'Select a subject first.', true)
+    if (profileDob && profileStartDate && profileDob > profileStartDate) {
+      return show('profile', 'Date of birth cannot be after the Lab School start date.', true)
+    }
+    if (profileStartDate && profileEndDate && profileEndDate < profileStartDate) {
+      return show('profile', 'Lab School end date cannot be before the start date.', true)
+    }
+
+    setSubjects((current) => current.map((entry) => (
+      entry.subjectCode === profileSubjectCode
+        ? {
+            ...entry,
+            dateOfBirth: profileDob || null,
+            labSchoolStartDate: profileStartDate || null,
+            labSchoolEndDate: profileEndDate || null,
+            targetBehaviors: profileTargetBehaviors,
+          }
+        : entry
+    )))
+    show('profile', `Profile saved for ${profileSubjectCode}.`, false)
+  }
+
+  function addProfileSubject() {
+    const code = newProfileSubjectCode.trim().toUpperCase()
+    if (!code) return show('profile', 'Enter a subject ID.', true)
+
+    if (subjects.some((subject) => subject.subjectCode.toUpperCase() === code)) {
+      return show('profile', 'That subject already exists.', true)
+    }
+
+    const nextSubject = {
+      id: subjects.length ? Math.max(...subjects.map((subject) => subject.id)) + 1 : 1,
+      subjectCode: code,
+      displayName: code,
+      isActive: true,
+      dateOfBirth: null,
+      labSchoolStartDate: null,
+      labSchoolEndDate: null,
+      targetBehaviors: [],
+    }
+
+    setSubjects((current) => [nextSubject, ...current])
+    setNewProfileSubjectCode('')
+    setProfileSubjectCode(code)
+    show('profile', `Added subject ${code}.`, false)
   }
 
   function addBehavior() {
@@ -876,6 +1025,71 @@ function App() {
               </div>
             </div>
             <div className="query-grid">
+              <article className="card inset">
+                <h3>Subject Profile</h3>
+                <p className="muted">Look up a subject's historical profile, or add a new subject by ID.</p>
+                <div className="section-heading tight">
+                  <select value={profileSubjectCode} onChange={(event) => { setProfileSubjectCode(event.target.value); setProfileLoaded(false) }}>
+                    <option value="">Select a subject…</option>
+                    {profileSubjectOptions.map((subject) => (
+                      <option key={subject.subjectCode} value={subject.subjectCode}>
+                        {subject.subjectCode}{subject.isActive ? '' : ' (inactive)'}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={loadSubjectProfile}>Load Profile</button>
+                </div>
+
+                {profileLoaded && (
+                  <div className="stack">
+                    <p className="muted">
+                      {profileVideoCount} video(s) logged, {profileOccurrenceCount} behavior occurrence(s) recorded.
+                    </p>
+                    <div className="form-grid">
+                      <label>
+                        Date of birth
+                        <input type="date" value={profileDob} onChange={(event) => setProfileDob(event.target.value)} />
+                      </label>
+                      <label>
+                        Lab School start date
+                        <input type="date" value={profileStartDate} onChange={(event) => setProfileStartDate(event.target.value)} />
+                      </label>
+                      <label>
+                        Lab School end date
+                        <input type="date" value={profileEndDate} onChange={(event) => setProfileEndDate(event.target.value)} />
+                      </label>
+                    </div>
+                    <p className="muted">Target behaviors (validated list)</p>
+                    <div className="chip-grid">
+                      {targetBehaviorOptions.map((name) => {
+                        const checked = profileTargetBehaviors.includes(name)
+                        return (
+                          <label key={name} className={`chip ${checked ? 'selected' : ''}`}>
+                            <input type="checkbox" checked={checked} onChange={() => toggleProfileTargetBehavior(name)} />
+                            <span>{name}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <div className="button-row">
+                      <button type="button" className="primary" onClick={saveSubjectProfile}>Save Profile</button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="status" aria-live="polite">
+                  {status.profile && <span className={status.profile.isError ? 'error' : 'success'}>{status.profile.text}</span>}
+                </div>
+
+                <div className="form-grid single">
+                  <label>
+                    Add a new subject
+                    <input value={newProfileSubjectCode} onChange={(event) => setNewProfileSubjectCode(event.target.value)} placeholder="S24" />
+                  </label>
+                </div>
+                <button type="button" onClick={addProfileSubject}>Add Subject</button>
+              </article>
+
               <article className="card inset">
                 <h3>Q1 — All Videos</h3>
                 <Table
