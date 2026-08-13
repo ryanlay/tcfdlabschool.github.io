@@ -138,12 +138,21 @@ const views = {
 function localInputValue(date = new Date()) {
   const copy = new Date(date)
   copy.setMinutes(copy.getMinutes() - copy.getTimezoneOffset())
-  return copy.toISOString().slice(0, 16)
+  return copy.toISOString().slice(0, 19)
 }
 
 function fmtDate(value) {
   if (!value) return '—'
-  return new Date(value).toLocaleString()
+  const d = new Date(value)
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const year = d.getFullYear()
+  let hours = d.getHours()
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  hours = hours % 12 || 12
+  const mins = String(d.getMinutes()).padStart(2, '0')
+  const secs = String(d.getSeconds()).padStart(2, '0')
+  return `${month}/${day}/${year} ${hours}:${mins}:${secs} ${ampm}`
 }
 
 function fmtDuration(seconds) {
@@ -246,7 +255,7 @@ function EditVideoPanel({
       <div className="form-grid">
         <label>
           Start time
-          <input type="datetime-local" value={editVideoStart} onChange={(event) => setEditVideoStart(event.target.value)} />
+          <input type="datetime-local" step="1" value={editVideoStart} onChange={(event) => setEditVideoStart(event.target.value)} />
         </label>
         <label>
           Duration (minutes)
@@ -987,7 +996,7 @@ function App() {
             <div className="form-grid">
               <label>
                 Start time
-                <input type="datetime-local" value={recordStartTime} onChange={(event) => setRecordStartTime(event.target.value)} />
+                <input type="datetime-local" step="1" value={recordStartTime} onChange={(event) => setRecordStartTime(event.target.value)} />
               </label>
               <label>
                 Duration (minutes)
