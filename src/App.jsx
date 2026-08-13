@@ -436,6 +436,7 @@ function App() {
     saveTimerRef.current = setTimeout(async () => {
       try {
         await saveSharedState({ subjects, behaviors, videos })
+        show('admin', 'Saved to Supabase.', false)
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Unknown error'
         show('admin', `Save to Supabase failed: ${detail}`, true)
@@ -875,13 +876,26 @@ function App() {
         return
       }
 
-      setSubjects(nextSubjects)
+      const rosteredSubjects = withHistoricalRoster(nextSubjects)
+      setSubjects(rosteredSubjects)
       setBehaviors(nextBehaviors)
       setVideos(nextVideos)
       setEditingVideoId(null)
-      show('admin', `Imported backup: ${nextVideos.length} videos loaded.`, false)
-    } catch {
-      show('admin', 'Could not import backup file.', true)
+
+      if (isSharePointConfigured()) {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+        }
+        // Save immediately (awaited) instead of relying on the debounced auto-save effect,
+        // so the import can't be lost if the tab is closed right after confirming.
+        await saveSharedState({ subjects: rosteredSubjects, behaviors: nextBehaviors, videos: nextVideos })
+        show('admin', `Imported and saved to Supabase: ${nextVideos.length} videos loaded.`, false)
+      } else {
+        show('admin', `Imported backup: ${nextVideos.length} videos loaded (not saved — Supabase not configured).`, false)
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown error'
+      show('admin', `Could not import backup file: ${detail}`, true)
     } finally {
       event.target.value = ''
     }
