@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isSharePointConfigured, loadSharedState, saveSharedState } from './sharepointBackend'
 
 const defaultSubjects = [
-  { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, targetBehaviors: [] },
-  { id: 2, subjectCode: 'CSH02', displayName: 'Classroom Student 02', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, targetBehaviors: [] },
-  { id: 3, subjectCode: 'CSH03', displayName: 'Classroom Student 03', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, targetBehaviors: [] },
+  { id: 1, subjectCode: 'CSH01', displayName: 'Classroom Student 01', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, personId: null, targetBehaviors: [] },
+  { id: 2, subjectCode: 'CSH02', displayName: 'Classroom Student 02', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, personId: null, targetBehaviors: [] },
+  { id: 3, subjectCode: 'CSH03', displayName: 'Classroom Student 03', isActive: true, dateOfBirth: null, labSchoolStartDate: null, labSchoolEndDate: null, personId: null, targetBehaviors: [] },
 ]
 
 // Validated list of target behaviors used on Subject historical profiles.
@@ -42,12 +42,23 @@ const historicalSubjectCodes = [
   'RS01', 'RS02', 'RS03', 'RS04',
 ]
 
+// Known Person_IDs for historical subjects (S04, S08, S18 have no known Person_ID).
+const historicalPersonIds = {
+  S01: 'P55943', S02: 'P55659', S03: 'P54788', S05: 'P52801', S06: 'P56145',
+  S07: 'P52164', S09: 'P55914', S10: 'P52233', S11: 'P59798', S12: 'P51352',
+  S13: 'P52709', S14: 'P57933', S15: 'P51538', S16: 'P55520', S17: 'P59495',
+  S19: 'P56833', S20: 'P51762', S21: 'P51948', S22: 'P53890', S23: 'P54824',
+  AS01: 'P53960', AS02: 'P57072', AS03: 'P59825', AS04: 'P54467', AS05: 'P54111',
+  AS06: 'P58432', AS07: 'P54002', AS08: 'P51327', AS09: 'P50217', AS10: 'P53202',
+  AS11: 'P58716', AS12: 'P57335', AS13: 'P51947', AS14: 'P59079', AS15: 'P50587',
+  RS01: 'P56631', RS02: 'P58976', RS03: 'P58719', RS04: 'P59081',
+}
+
 // Additively merges the historical roster into an existing subjects list, without touching
 // or removing any subjects/data that are already there.
 function withHistoricalRoster(existingSubjects) {
   const existingCodes = new Set(existingSubjects.map((subject) => subject.subjectCode.toUpperCase()))
   const missing = historicalSubjectCodes.filter((code) => !existingCodes.has(code.toUpperCase()))
-  if (missing.length === 0) return existingSubjects
 
   let nextId = existingSubjects.length ? Math.max(...existingSubjects.map((subject) => subject.id)) + 1 : 1
   const additions = missing.map((code) => ({
@@ -58,9 +69,18 @@ function withHistoricalRoster(existingSubjects) {
     dateOfBirth: null,
     labSchoolStartDate: null,
     labSchoolEndDate: null,
+    personId: historicalPersonIds[code] || null,
     targetBehaviors: [],
   }))
-  return [...existingSubjects, ...additions]
+  const merged = missing.length ? [...existingSubjects, ...additions] : existingSubjects
+
+  // Additively backfill Person_ID for known historical subjects that don't have one yet.
+  // Never overwrites a personId that's already set (e.g. manually edited).
+  return merged.map((subject) => (
+    !subject.personId && historicalPersonIds[subject.subjectCode.toUpperCase()]
+      ? { ...subject, personId: historicalPersonIds[subject.subjectCode.toUpperCase()] }
+      : subject
+  ))
 }
 
 const defaultBehaviors = [
@@ -328,6 +348,7 @@ function App() {
   // Subject historical profile
   const [profileSubjectCode, setProfileSubjectCode] = useState('')
   const [profileLoaded, setProfileLoaded] = useState(false)
+  const [profilePersonId, setProfilePersonId] = useState('')
   const [profileDob, setProfileDob] = useState('')
   const [profileStartDate, setProfileStartDate] = useState('')
   const [profileEndDate, setProfileEndDate] = useState('')
@@ -645,6 +666,7 @@ function App() {
       dateOfBirth: null,
       labSchoolStartDate: null,
       labSchoolEndDate: null,
+      personId: null,
       targetBehaviors: [],
     }
 
@@ -659,6 +681,7 @@ function App() {
     const subject = subjects.find((entry) => entry.subjectCode === profileSubjectCode)
     if (!subject) return show('profile', 'Subject not found.', true)
 
+    setProfilePersonId(subject.personId || '')
     setProfileDob(subject.dateOfBirth ? subject.dateOfBirth.slice(0, 10) : '')
     setProfileStartDate(subject.labSchoolStartDate ? subject.labSchoolStartDate.slice(0, 10) : '')
     setProfileEndDate(subject.labSchoolEndDate ? subject.labSchoolEndDate.slice(0, 10) : '')
@@ -684,6 +707,7 @@ function App() {
       entry.subjectCode === profileSubjectCode
         ? {
             ...entry,
+            personId: profilePersonId.trim() || null,
             dateOfBirth: profileDob || null,
             labSchoolStartDate: profileStartDate || null,
             labSchoolEndDate: profileEndDate || null,
@@ -710,6 +734,7 @@ function App() {
       dateOfBirth: null,
       labSchoolStartDate: null,
       labSchoolEndDate: null,
+      personId: null,
       targetBehaviors: [],
     }
 
@@ -1046,6 +1071,10 @@ function App() {
                       {profileVideoCount} video(s) logged, {profileOccurrenceCount} behavior occurrence(s) recorded.
                     </p>
                     <div className="form-grid">
+                      <label>
+                        Person ID
+                        <input value={profilePersonId} onChange={(event) => setProfilePersonId(event.target.value)} placeholder="e.g. P55943" />
+                      </label>
                       <label>
                         Date of birth
                         <input type="date" value={profileDob} onChange={(event) => setProfileDob(event.target.value)} />
