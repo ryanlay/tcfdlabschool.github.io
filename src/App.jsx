@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isSharePointConfigured, loadSharedState, saveSharedState } from './sharepointBackend'
 
 const defaultSubjects = [
@@ -384,54 +384,56 @@ function App() {
   const importFileInputRef = useRef(null)
   const hasHydratedFromBackendRef = useRef(false)
   const saveTimerRef = useRef(null)
+  const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function initialize() {
-      try {
-        if (!isSharePointConfigured()) {
-          if (!cancelled) {
-            show('home', 'Supabase is not configured. Add Supabase environment settings.', true)
-            setSubjects(withHistoricalRoster(defaultSubjects))
-            setBehaviors(defaultBehaviors)
-            setVideos(defaultVideos)
-            setReady(true)
-          }
-          return
-        }
-
-        const state = await loadSharedState({
-          subjects: defaultSubjects,
-          behaviors: defaultBehaviors,
-          videos: defaultVideos,
-        })
-
-        if (!cancelled) {
-          setSubjects(withHistoricalRoster(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects))
-          setBehaviors(Array.isArray(state.behaviors) && state.behaviors.length ? state.behaviors : defaultBehaviors)
-          setVideos(Array.isArray(state.videos) ? state.videos : defaultVideos)
-          hasHydratedFromBackendRef.current = true
-          setReady(true)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const detail = error instanceof Error ? error.message : 'Unknown error'
-          show('home', `Could not load from Supabase: ${detail}`, true)
-          setSubjects(withHistoricalRoster(defaultSubjects))
-          setBehaviors(defaultBehaviors)
-          setVideos(defaultVideos)
-          setReady(true)
-        }
+  const initialize = useCallback(async () => {
+    setLoading(true)
+    try {
+      if (!isSharePointConfigured()) {
+        show('home', 'Supabase is not configured. Add Supabase environment settings.', true)
+        setSubjects(withHistoricalRoster(defaultSubjects))
+        setBehaviors(defaultBehaviors)
+        setVideos(defaultVideos)
+        setReady(true)
+        return
       }
-    }
 
-    initialize()
+      const state = await loadSharedState({
+        subjects: defaultSubjects,
+        behaviors: defaultBehaviors,
+        videos: defaultVideos,
+      })
 
-    return () => {
-      cancelled = true
+      setSubjects(withHistoricalRoster(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects))
+      setBehaviors(Array.isArray(state.behaviors) && state.behaviors.length ? state.behaviors : defaultBehaviors)
+      setVideos(Array.isArray(state.videos) ? state.videos : defaultVideos)
+      hasHydratedFromBackendRef.current = true
+      setReady(true)
+      show('home', '', false)
+    } catch (error) {
+      // IMPORTANT: a failed load must NEVER be mistaken for "my data is gone". It isn't -
+      // hasHydratedFromBackendRef stays false, so the auto-save effect below refuses to run
+      // and can't overwrite the real Supabase row with this placeholder data. This banner is
+      // the only thing telling the user what actually happened, so it must stay visible
+      // (not auto-dismiss) until a retry succeeds.
+      const detail = error instanceof Error ? error.message : 'Unknown error'
+      show(
+        'home',
+        `Could not reach Supabase to load your saved data (showing local placeholder data — nothing on the server was changed or deleted). Check your network/firewall, then Retry. Error: ${detail}`,
+        true,
+      )
+      setSubjects(withHistoricalRoster(defaultSubjects))
+      setBehaviors(defaultBehaviors)
+      setVideos(defaultVideos)
+      setReady(true)
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    initialize()
+  }, [initialize])
 
   useEffect(() => {
     if (!ready) return
@@ -959,6 +961,16 @@ function App() {
 
       {view === views.home && (
         <section className="card">
+          {status.home && (
+            <div className="status" aria-live="polite" style={{ marginBottom: '16px' }}>
+              <span className={status.home.isError ? 'error' : 'success'}>{status.home.text}</span>
+              {status.home.isError && (
+                <button type="button" onClick={initialize} disabled={loading} style={{ marginLeft: '12px' }}>
+                  {loading ? 'Retrying…' : 'Retry'}
+                </button>
+              )}
+            </div>
+          )}
           <div className="home-cards">
             <button type="button" className="home-card" onClick={() => setView(views.intake)}>
               <span className="home-card-icon">🎥</span>
