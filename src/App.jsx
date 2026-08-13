@@ -55,10 +55,19 @@ const historicalPersonIds = {
 }
 
 // Additively merges the historical roster into an existing subjects list, without touching
-// or removing any subjects/data that are already there.
+// or removing any subjects/data that are already there. Returns the same array reference
+// when nothing needs to change, so it doesn't trigger a needless re-save on every load.
 function withHistoricalRoster(existingSubjects) {
   const existingCodes = new Set(existingSubjects.map((subject) => subject.subjectCode.toUpperCase()))
   const missing = historicalSubjectCodes.filter((code) => !existingCodes.has(code.toUpperCase()))
+
+  const needsPersonIdBackfill = existingSubjects.some(
+    (subject) => !subject.personId && historicalPersonIds[subject.subjectCode.toUpperCase()],
+  )
+
+  if (missing.length === 0 && !needsPersonIdBackfill) {
+    return existingSubjects
+  }
 
   let nextId = existingSubjects.length ? Math.max(...existingSubjects.map((subject) => subject.id)) + 1 : 1
   const additions = missing.map((code) => ({
