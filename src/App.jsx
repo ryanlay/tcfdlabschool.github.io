@@ -404,8 +404,8 @@ function App() {
   const importFileInputRef = useRef(null)
   const hasHydratedFromBackendRef = useRef(false)
   const saveTimerRef = useRef(null)
-  // Tracks the `updated_at` this tab last saw from Supabase. Every save is checked against the
-  // server's CURRENT updated_at first - if it no longer matches (another tab/device saved since),
+  // Tracks the `updatedAt` this tab last saw from Firebase. Every save is checked against the
+  // server's current updatedAt first - if it no longer matches (another tab/device saved since),
   // the save is refused (StaleWriteError) instead of silently clobbering that newer data.
   const updatedAtRef = useRef(null)
   const [loading, setLoading] = useState(false)
@@ -415,7 +415,7 @@ function App() {
     show('conflict', '', false)
     try {
       if (!isSharePointConfigured()) {
-        show('home', 'Supabase is not configured. Add Supabase environment settings.', true)
+        show('home', 'Firebase is not configured. Add Firebase environment settings.', true)
         setSubjects(withHistoricalRoster(defaultSubjects))
         setBehaviors(defaultBehaviors)
         setVideos(defaultVideos)
@@ -439,13 +439,13 @@ function App() {
     } catch (error) {
       // IMPORTANT: a failed load must NEVER be mistaken for "my data is gone". It isn't -
       // hasHydratedFromBackendRef stays false, so the auto-save effect below refuses to run
-      // and can't overwrite the real Supabase row with this placeholder data. This banner is
+      // and can't overwrite the real Firebase document with this placeholder data. This banner is
       // the only thing telling the user what actually happened, so it must stay visible
       // (not auto-dismiss) until a retry succeeds.
       const detail = error instanceof Error ? error.message : 'Unknown error'
       show(
         'home',
-        `Could not reach Supabase to load your saved data (showing local placeholder data — nothing on the server was changed or deleted). Check your network/firewall, then Retry. Error: ${detail}`,
+        `Could not reach Firebase to load your saved data (showing local placeholder data — nothing on the server was changed or deleted). Check your network/firewall, then Retry. Error: ${detail}`,
         true,
       )
       setSubjects(withHistoricalRoster(defaultSubjects))
@@ -474,14 +474,14 @@ function App() {
       try {
         const saved = await saveSharedState({ subjects, behaviors, videos }, { expectedUpdatedAt: updatedAtRef.current })
         updatedAtRef.current = saved.updatedAt
-        show('admin', 'Saved to Supabase.', false)
+        show('admin', 'Saved to Firebase.', false)
       } catch (error) {
         if (error instanceof StaleWriteError) {
           show('conflict', `${error.message} (Your most recent change on this device was NOT saved.)`, true)
           return
         }
         const detail = error instanceof Error ? error.message : 'Unknown error'
-        show('admin', `Save to Supabase failed: ${detail}`, true)
+        show('admin', `Save to Firebase failed: ${detail}`, true)
       }
     }, 500)
 
@@ -930,16 +930,16 @@ function App() {
         }
         // Save immediately (awaited) instead of relying on the debounced auto-save effect,
         // so the import can't be lost if the tab is closed right after confirming. Still checked
-        // against the server's current updated_at - if someone else saved more recent changes
+        // against the server's current updatedAt - if someone else saved more recent changes
         // since this tab last loaded, we refuse to blindly overwrite them.
         const saved = await saveSharedState(
           { subjects: rosteredSubjects, behaviors: nextBehaviors, videos: nextVideos },
           { expectedUpdatedAt: updatedAtRef.current },
         )
         updatedAtRef.current = saved.updatedAt
-        show('admin', `Imported and saved to Supabase: ${nextVideos.length} videos loaded.`, false)
+        show('admin', `Imported and saved to Firebase: ${nextVideos.length} videos loaded.`, false)
       } else {
-        show('admin', `Imported backup: ${nextVideos.length} videos loaded (not saved — Supabase not configured).`, false)
+        show('admin', `Imported backup: ${nextVideos.length} videos loaded (not saved — Firebase not configured).`, false)
       }
     } catch (error) {
       if (error instanceof StaleWriteError) {
@@ -1447,7 +1447,7 @@ function App() {
 
         <article className="card">
           <h2>Data Safety</h2>
-          <p className="muted">Primary storage is Supabase (shared across devices). Export/import is an extra backup tool.</p>
+          <p className="muted">Primary storage is Firebase (shared across devices). Export/import is an extra backup tool.</p>
           <div className="button-row">
             <button type="button" onClick={exportAllData}>Export Backup (JSON)</button>
             <button type="button" className="secondary" onClick={openImportDialog}>Import Backup</button>

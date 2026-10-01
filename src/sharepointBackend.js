@@ -1,39 +1,39 @@
-import { createClient } from '@supabase/supabase-js'
+import { initializeApp } from 'firebase/app'
+import { doc, getDoc, getFirestore, runTransaction } from 'firebase/firestore'
 
-const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://uqedhpsjugpnlzohearq.supabase.co/rest/v1/'
-const SUPABASE_URL = rawSupabaseUrl.replace(/\/rest\/v1\/?$/, '')
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_OvVPFSDDRNxQGnw8lIyXOA_KWB0G6GP'
-const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || 'lab_school_state'
-const SUPABASE_STATE_KEY = 'shared'
-
-// A blocked/blackholed connection (e.g. a firewall silently dropping packets instead of
-// rejecting the connection) can otherwise hang for a very long time before the browser gives up.
-// Force every Supabase request to fail fast so retries actually help instead of compounding into
-// a multi-minute wait.
-function fetchWithTimeout(url, options, timeoutMs = 6000) {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId))
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 }
+const FIREBASE_COLLECTION = import.meta.env.VITE_FIREBASE_COLLECTION || 'lab_school_state'
+const FIREBASE_STATE_ID = 'shared'
+const REQUEST_TIMEOUT_MS = 10000
+const isConfigured = Object.values(firebaseConfig).every((value) => typeof value === 'string' && value.trim())
+const db = isConfigured ? getFirestore(initializeApp(firebaseConfig)) : null
+const sharedStateRef = db ? doc(db, FIREBASE_COLLECTION, FIREBASE_STATE_ID) : null
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-  global: {
-    fetch: fetchWithTimeout,
-  },
-})
+// Firestore's web SDK does not expose an AbortSignal for individual operations. Bound the
+// wait at the call site so a blackholed connection fails promptly instead of stalling retries.
+function withTimeout(promise, timeoutMs = REQUEST_TIMEOUT_MS) {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Firebase request timed out. Check your network/firewall and retry.')), timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId))
+}
 
 export function isSharePointConfigured() {
-  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
+  return Boolean(db && sharedStateRef)
 }
 
-// Thrown by saveSharedState when another device/tab has saved newer changes than the ones
-// this client last loaded. Callers must NOT retry-overwrite on this error - the caller should
-// tell the user to reload and redo their change, otherwise their save would silently clobber
-// someone else's more recent edit (multiple tabs/devices share one row with no realtime sync).
+// Thrown when another device/tab has saved newer changes than the ones this client last loaded.
+// Callers must not retry-overwrite on this error; they should ask the user to reload and redo
+// their change, otherwise their save could silently clobber someone else's edit.
 export class StaleWriteError extends Error {
   constructor(message) {
     super(message)
@@ -61,72 +61,57 @@ export async function loadSharedState(defaultState) {
   const fallback = cloneDefaultState(defaultState)
   if (!isSharePointConfigured()) return { ...fallback, updatedAt: null }
 
-  const { data, error } = await supabase
-    .from(SUPABASE_TABLE)
-    .select('subjects, behaviors, videos, updated_at')
-    .eq('state_key', SUPABASE_STATE_KEY)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(`Supabase load failed: ${error.message}`)
+  let snapshot
+  try {
+    snapshot = await withTimeout(getDoc(sharedStateRef))
+  } catch (error) {
+    throw new Error(`Firebase load failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 
-  if (!data) {
-    const saved = await saveSharedState(fallback, { force: true })
-    return { ...fallback, updatedAt: saved.updatedAt }
+  if (!snapshot.exists()) {
+    await saveSharedState(fallback, { force: true })
+    try {
+      snapshot = await withTimeout(getDoc(sharedStateRef))
+    } catch (error) {
+      throw new Error(`Firebase load failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+    if (!snapshot.exists()) return { ...fallback, updatedAt: null }
   }
 
-  return { ...normalizeState(data, fallback), updatedAt: data.updated_at ?? null }
+  const data = snapshot.data()
+  return { ...normalizeState(data, fallback), updatedAt: data.updatedAt ?? null }
 }
 
-// `expectedUpdatedAt` should be the `updatedAt` this client last saw (from loadSharedState or a
-// prior saveSharedState result). If the row's current updated_at no longer matches, someone else
-// has saved since - we refuse to overwrite it and throw StaleWriteError instead. Pass
-// `{ force: true }` only for the one-time "create the row if it doesn't exist yet" bootstrap.
+// `expectedUpdatedAt` should be the `updatedAt` this client last saw. The transaction compares
+// and writes atomically, so concurrent devices cannot both pass the stale-write check.
+// `{ force: true }` is reserved for bootstrapping the shared document when it does not exist.
 export async function saveSharedState(state, { expectedUpdatedAt, force = false } = {}) {
   if (!isSharePointConfigured()) return { updatedAt: null }
 
-  if (!force) {
-    const { data: current, error: checkError } = await supabase
-      .from(SUPABASE_TABLE)
-      .select('updated_at')
-      .eq('state_key', SUPABASE_STATE_KEY)
-      .maybeSingle()
-
-    if (checkError) {
-      throw new Error(`Supabase save failed: ${checkError.message}`)
-    }
-
-    const currentUpdatedAt = current?.updated_at ?? null
-    if (currentUpdatedAt !== (expectedUpdatedAt ?? null)) {
-      throw new StaleWriteError(
-        'Someone else saved changes to the shared data since this device last loaded it. Reload to get the latest version, then redo your change.',
-      )
-    }
-  }
-
   const payload = {
-    state_key: SUPABASE_STATE_KEY,
     subjects: Array.isArray(state?.subjects) ? state.subjects : [],
     behaviors: Array.isArray(state?.behaviors) ? state.behaviors : [],
     videos: Array.isArray(state?.videos) ? state.videos : [],
-    updated_at: new Date().toISOString(),
   }
 
-  // Read back the value Postgres actually stored (rather than trusting the ISO string we sent)
-  // so future comparisons in the pre-save check above use the exact same serialization that a
-  // plain `.select('updated_at')` would return - otherwise formatting differences (e.g. Postgres
-  // returning microsecond precision / a "+00:00" offset instead of our "Z"-suffixed string) would
-  // make every subsequent save from this same tab look like a false-positive conflict.
-  const { data: savedRow, error } = await supabase
-    .from(SUPABASE_TABLE)
-    .upsert(payload, { onConflict: 'state_key' })
-    .select('updated_at')
-    .single()
+  try {
+    return await withTimeout(runTransaction(db, async (transaction) => {
+      const current = await transaction.get(sharedStateRef)
+      const currentUpdatedAt = current.exists() ? current.data().updatedAt ?? null : null
+      if (force && current.exists()) return { updatedAt: currentUpdatedAt }
+      if (!force && currentUpdatedAt !== (expectedUpdatedAt ?? null)) {
+        throw new StaleWriteError(
+          'Someone else saved changes to the shared data since this device last loaded it. Reload to get the latest version, then redo your change.',
+        )
+      }
 
-  if (error) {
-    throw new Error(`Supabase save failed: ${error.message}`)
+      const previousMillis = Date.parse(currentUpdatedAt)
+      const updatedAt = new Date(Math.max(Date.now(), Number.isFinite(previousMillis) ? previousMillis + 1 : 0)).toISOString()
+      transaction.set(sharedStateRef, { ...payload, updatedAt })
+      return { updatedAt }
+    }))
+  } catch (error) {
+    if (error instanceof StaleWriteError) throw error
+    throw new Error(`Firebase save failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
-
-  return { updatedAt: savedRow.updated_at }
 }
