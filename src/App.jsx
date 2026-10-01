@@ -94,7 +94,8 @@ function withHistoricalRoster(existingSubjects) {
     id: nextId++,
     subjectCode: code,
     displayName: code,
-    isActive: true,
+    // Keep historical subjects available for profile/admin lookups, but out of the active-presence picker until reactivated in Admin > Subjects.
+    isActive: false,
     dateOfBirth: null,
     labSchoolStartDate: null,
     labSchoolEndDate: null,
