@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /lab_school_state/shared {
+      allow get: if true;
+      allow create, update: if request.resource.data.keys().hasAll([
+          'subjects', 'behaviors', 'videos', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'subjects', 'behaviors', 'videos', 'updatedAt'
+        ])
+        && request.resource.data.subjects is list
+        && request.resource.data.behaviors is list
+        && request.resource.data.videos is list
+        && request.resource.data.updatedAt is string;
+    }
+  }
+}
