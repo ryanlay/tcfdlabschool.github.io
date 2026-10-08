@@ -341,6 +341,39 @@ td {
   vertical-align: top;
 }
 
+.notes-cell {
+  min-width: 220px;
+  max-width: 360px;
+  white-space: normal;
+}
+
+.notes-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.notes-text-collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+button.notes-toggle {
+  margin-top: 4px;
+  padding: 2px 0;
+  background: transparent;
+  color: #9a4b00;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+button.notes-toggle:hover,
+button.notes-toggle:focus-visible {
+  background: transparent;
+  color: var(--brand-orange-dark);
+}
+
 tbody tr:hover td {
   background: #fff8ef;
 }

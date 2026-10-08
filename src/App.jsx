@@ -372,6 +372,7 @@ function App() {
 
   const [dataSearch, setDataSearch] = useState('')
   const [dataSort, setDataSort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
+  const [expandedNoteIds, setExpandedNoteIds] = useState(() => new Set())
 
   const [q1Sort, setQ1Sort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
   const [q2Sort, setQ2Sort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
@@ -1371,6 +1372,36 @@ function App() {
               { key: 'durationSeconds', label: 'Duration', sortable: true, render: (row) => esc(fmtDuration(row.durationSeconds)) },
               { key: 'subjects', label: 'Subjects', sortable: false, render: (row) => esc(row.subjectCodes.join(', ')) },
               { key: 'behaviors', label: 'Behaviors', sortable: false, render: (row) => esc(row.occurrences.map((occurrence) => occurrence.behaviorTypeName).join(', ') || '—') },
+              {
+                key: 'notes',
+                label: 'Notes',
+                sortable: true,
+                render: (row) => {
+                  if (!row.notes) return '—'
+                  const isLong = row.notes.length > 120
+                  const expanded = isLong && expandedNoteIds.has(row.id)
+                  return (
+                    <div className="notes-cell">
+                      <div className={isLong && !expanded ? 'notes-text notes-text-collapsed' : 'notes-text'}>{row.notes}</div>
+                      {isLong && (
+                        <button
+                          type="button"
+                          className="notes-toggle"
+                          aria-expanded={expanded}
+                          onClick={() => setExpandedNoteIds((current) => {
+                            const next = new Set(current)
+                            if (next.has(row.id)) next.delete(row.id)
+                            else next.add(row.id)
+                            return next
+                          })}
+                        >
+                          {expanded ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                },
+              },
               {
                 key: 'uploadedToSharePoint',
                 label: 'Uploaded',
