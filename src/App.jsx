@@ -285,10 +285,10 @@ function sortRows(rows, sortCol, sortDir, getter) {
   })
 }
 
-function Table({ columns, rows, sortState, onSort, emptyMessage }) {
+function Table({ columns, rows, sortState, onSort, emptyMessage, tableClassName = '' }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table className={tableClassName}>
         <thead>
           <tr>
             {columns.map((column) => (
@@ -472,11 +472,16 @@ function App() {
   const [q6Sort, setQ6Sort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
 
   const [newSubjectCode, setNewSubjectCode] = useState('')
+  const [editingSubjectId, setEditingSubjectId] = useState(null)
+  const [editingSubjectCode, setEditingSubjectCode] = useState('')
   const [newSubjectName, setNewSubjectName] = useState('')
   const [newBehaviorName, setNewBehaviorName] = useState('')
   const [newDeviceName, setNewDeviceName] = useState('')
   const [newDeviceManufacturer, setNewDeviceManufacturer] = useState('')
   const [newDeviceModel, setNewDeviceModel] = useState('')
+  const [adminSection, setAdminSection] = useState('subjects')
+  const [subjectSearch, setSubjectSearch] = useState('')
+  const [showInactiveSubjects, setShowInactiveSubjects] = useState(false)
 
   // Subject historical profile
   const [profileSubjectCode, setProfileSubjectCode] = useState('')
@@ -602,7 +607,9 @@ function App() {
   )
   const q3SubjectOptions = useMemo(() => {
     const codes = new Set()
-    for (const subject of subjects) codes.add(subject.subjectCode)
+    for (const subject of subjects) {
+      if (!subject.isDeleted) codes.add(subject.subjectCode)
+    }
     for (const video of videos) {
       for (const code of video.subjectCodes || []) codes.add(code)
     }
@@ -618,7 +625,7 @@ function App() {
 
   // Historical review isn't limited to currently-active subjects, so this list is unfiltered.
   const profileSubjectOptions = useMemo(
-    () => [...subjects].sort((left, right) => left.subjectCode.localeCompare(right.subjectCode, undefined, { numeric: true, sensitivity: 'base' })),
+    () => subjects.filter((subject) => !subject.isDeleted).sort((left, right) => left.subjectCode.localeCompare(right.subjectCode, undefined, { numeric: true, sensitivity: 'base' })),
     [subjects],
   )
   const profileVideoCount = useMemo(
@@ -868,6 +875,80 @@ function App() {
     show('admin', `Added subject ${code}.`, false)
   }
 
+  function startEditSubject(subject) {
+    setEditingSubjectId(subject.id)
+    setEditingSubjectCode(subject.subjectCode)
+  }
+
+  function cancelEditSubject() {
+    setEditingSubjectId(null)
+    setEditingSubjectCode('')
+  }
+
+  function saveSubjectCode(subjectId) {
+    const nextCode = editingSubjectCode.trim().toUpperCase()
+    const subject = subjects.find((entry) => entry.id === subjectId)
+    if (!subject) return cancelEditSubject()
+    if (!nextCode) return show('admin', 'Enter a subject code.', true)
+    if (subjects.some((entry) => entry.id !== subjectId && entry.subjectCode.toUpperCase() === nextCode)) {
+      return show('admin', 'That subject already exists.', true)
+    }
+    if (nextCode === subject.subjectCode) return cancelEditSubject()
+
+    const previousCode = subject.subjectCode
+    setSubjects((current) => {
+      const renamed = current.map((entry) => entry.id === subjectId
+        ? { ...entry, subjectCode: nextCode, displayName: entry.displayName === previousCode ? nextCode : entry.displayName }
+        : entry)
+      if (!historicalSubjectCodes.includes(previousCode)) return renamed
+      return [...renamed, {
+        id: Math.max(...renamed.map((entry) => entry.id)) + 1,
+        subjectCode: previousCode,
+        displayName: previousCode,
+        isActive: false,
+        isDeleted: true,
+        dateOfBirth: null,
+        labSchoolStartDate: null,
+        labSchoolEndDate: null,
+        personId: null,
+        targetBehaviors: [],
+      }]
+    })
+    // A code correction should follow this subject through existing recordings. Deletion below
+    // deliberately does not do this, so deleted subjects remain visible in historical records.
+    setVideos((current) => current.map((video) => {
+      const subjectCodes = (video.subjectCodes || []).map((code) => code === previousCode ? nextCode : code)
+      const occurrences = (video.occurrences || []).map((occurrence) => occurrence.subjectCode === previousCode
+        ? { ...occurrence, subjectCode: nextCode }
+        : occurrence)
+      const biosignalBySubject = { ...(video.biosignalBySubject || {}) }
+      if (Object.hasOwn(biosignalBySubject, previousCode)) {
+        biosignalBySubject[nextCode] = biosignalBySubject[previousCode]
+        delete biosignalBySubject[previousCode]
+      }
+      return { ...video, subjectCodes, occurrences, biosignalBySubject }
+    }))
+    if (profileSubjectCode === previousCode) setProfileSubjectCode(nextCode)
+    setEditingSubjectId(null)
+    setEditingSubjectCode('')
+    show('admin', `Updated subject ${previousCode} to ${nextCode}, including existing recordings.`, false)
+  }
+
+  function deleteSubject(subject) {
+    if (!window.confirm(`Delete ${subject.subjectCode} from the subject roster? Existing recordings will keep this subject ID.`)) return
+    // Retain a hidden tombstone so historical IDs are not automatically re-added to the roster
+    // during historical roster initialization. Do not touch any video or occurrence data.
+    setSubjects((current) => current.map((entry) => entry.id === subject.id
+      ? { ...entry, isDeleted: true, isActive: false }
+      : entry))
+    if (editingSubjectId === subject.id) cancelEditSubject()
+    if (profileSubjectCode === subject.subjectCode) {
+      setProfileSubjectCode('')
+      setProfileLoaded(false)
+    }
+    show('admin', `Deleted ${subject.subjectCode} from the roster. Existing recordings were preserved.`, false)
+  }
+
   function loadSubjectProfile() {
     if (!profileSubjectCode) return show('profile', 'Select a subject first.', true)
 
@@ -954,6 +1035,16 @@ function App() {
     setBehaviors((current) => [nextBehavior, ...current])
     setNewBehaviorName('')
     show('admin', `Added behavior ${name}.`, false)
+  }
+
+  function deleteBehavior(behavior) {
+    if (!window.confirm(`Delete “${behavior.name}” from Behavior Types? Existing recordings will keep this behavior.`)) return
+    // Retain a hidden roster marker so existing occurrence history remains editable and the
+    // behavior is not accidentally reintroduced by later code that merges default rosters.
+    setBehaviors((current) => current.map((entry) => entry.id === behavior.id
+      ? { ...entry, isDeleted: true, isActive: false }
+      : entry))
+    show('admin', `Deleted ${behavior.name} from Behavior Types. Existing recordings were preserved.`, false)
   }
 
   function addDevice() {
@@ -1567,6 +1658,7 @@ function App() {
             />
           </div>
           <Table
+            tableClassName="review-data-table"
             columns={[
               { key: 'id', label: 'ID', sortable: true, render: (row) => esc(row.id) },
               { key: 'recordStartTime', label: 'Start Time', sortable: true, render: (row) => esc(fmtDate(row.recordStartTime)) },
@@ -1584,7 +1676,7 @@ function App() {
               },
               {
                 key: 'biosignalBySubject',
-                label: 'Biosignal Data Available',
+                label: 'Biosignal Data',
                 sortable: false,
                 render: (row) => <div className="biosignal-cell">{formatBiosignalGroups(row) || '—'}</div>,
               },
@@ -1642,10 +1734,33 @@ function App() {
       )}
 
       {view === views.admin && (
-        <div className="stack">
-        <section className="grid two-up">
+        <div className="admin-workspace">
+          <nav className="admin-nav" aria-label="Admin modules">
+            <p className="admin-nav-label">Manage</p>
+            {[
+              { id: 'subjects', label: 'Subjects' },
+              { id: 'behaviors', label: 'Behavior Types' },
+              { id: 'devices', label: 'Biosignal Devices' },
+              { id: 'safety', label: 'Data Safety' },
+              { id: 'logs', label: 'Log Entries' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`admin-nav-item ${adminSection === item.id ? 'selected' : ''}`}
+                onClick={() => setAdminSection(item.id)}
+                aria-current={adminSection === item.id ? 'page' : undefined}
+              >
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="admin-panel">
+        {adminSection === 'subjects' && (
           <article className="card">
             <h2>Subjects</h2>
+            <p className="muted">Active subjects are available when adding a recording. Inactive subjects stay in the historical profile roster.</p>
             <div className="form-grid single">
               <label>
                 Subject code
@@ -1653,22 +1768,85 @@ function App() {
               </label>
             </div>
             <button type="button" className="primary" onClick={addSubject}>Add Subject</button>
+            <label className="subject-search">
+              Search subjects
+              <input value={subjectSearch} onChange={(event) => setSubjectSearch(event.target.value)} placeholder="Search by subject ID" />
+            </label>
             <div className="list">
-              {subjects.map((subject) => (
-                <label key={subject.subjectCode} className="list-item">
-                  <span>
-                    <strong>{subject.subjectCode}</strong>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={subject.isActive}
-                    onChange={() => setSubjects((current) => current.map((entry) => entry.id === subject.id ? { ...entry, isActive: !entry.isActive } : entry))}
-                  />
-                </label>
+              {subjects.filter((subject) => !subject.isDeleted && subject.isActive && subject.subjectCode.toLowerCase().includes(subjectSearch.trim().toLowerCase())).map((subject) => (
+                <div key={subject.id} className="list-item subject-roster-item">
+                  {editingSubjectId === subject.id ? (
+                    <>
+                      <input
+                        aria-label={`Edit subject code for ${subject.subjectCode}`}
+                        value={editingSubjectCode}
+                        onChange={(event) => setEditingSubjectCode(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') saveSubjectCode(subject.id)
+                          if (event.key === 'Escape') cancelEditSubject()
+                        }}
+                      />
+                      <div className="subject-roster-actions">
+                        <button type="button" onClick={() => saveSubjectCode(subject.id)}>Save</button>
+                        <button type="button" className="secondary" onClick={cancelEditSubject}>Cancel</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <strong>{subject.subjectCode}</strong>
+                      <div className="subject-roster-actions">
+                        <button type="button" onClick={() => startEditSubject(subject)}>Edit</button>
+                        <button type="button" className="danger" onClick={() => deleteSubject(subject)}>Delete</button>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={subject.isActive}
+                            onChange={() => setSubjects((current) => current.map((entry) => entry.id === subject.id ? { ...entry, isActive: !entry.isActive } : entry))}
+                          />
+                          Active
+                        </label>
+                      </div>
+                    </>
+                  )}
+                </div>
               ))}
+              {!subjects.some((subject) => !subject.isDeleted && subject.isActive && subject.subjectCode.toLowerCase().includes(subjectSearch.trim().toLowerCase())) && (
+                <p className="muted">No active subjects match your search.</p>
+              )}
+            </div>
+            <div className="inactive-subjects">
+              <button type="button" className="inactive-subjects-toggle" aria-expanded={showInactiveSubjects} onClick={() => setShowInactiveSubjects((visible) => !visible)}>
+                <span>{showInactiveSubjects ? '▾' : '▸'} Inactive / historic subjects</span>
+                <span className="admin-nav-count">{subjects.filter((subject) => !subject.isDeleted && !subject.isActive).length}</span>
+              </button>
+              {showInactiveSubjects && (
+                <div className="list">
+                  {subjects.filter((subject) => !subject.isDeleted && !subject.isActive && subject.subjectCode.toLowerCase().includes(subjectSearch.trim().toLowerCase())).map((subject) => (
+                    <div key={subject.id} className="list-item subject-roster-item">
+                      {editingSubjectId === subject.id ? (
+                        <>
+                          <input aria-label={`Edit subject code for ${subject.subjectCode}`} value={editingSubjectCode} onChange={(event) => setEditingSubjectCode(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') saveSubjectCode(subject.id); if (event.key === 'Escape') cancelEditSubject() }} />
+                          <div className="subject-roster-actions"><button type="button" onClick={() => saveSubjectCode(subject.id)}>Save</button><button type="button" className="secondary" onClick={cancelEditSubject}>Cancel</button></div>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{subject.subjectCode}</strong>
+                          <div className="subject-roster-actions">
+                            <button type="button" onClick={() => startEditSubject(subject)}>Edit</button>
+                            <button type="button" className="danger" onClick={() => deleteSubject(subject)}>Delete</button>
+                            <label className="toggle"><input type="checkbox" checked={subject.isActive} onChange={() => setSubjects((current) => current.map((entry) => entry.id === subject.id ? { ...entry, isActive: !entry.isActive } : entry))} />Active</label>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </article>
+        )}
 
+        {adminSection === 'behaviors' && (
           <article className="card">
             <h2>Behavior Types</h2>
             <div className="form-grid single">
@@ -1679,20 +1857,27 @@ function App() {
             </div>
             <button type="button" className="primary" onClick={addBehavior}>Add Behavior</button>
             <div className="list">
-              {behaviors.map((behavior) => (
-                <label key={behavior.name} className="list-item">
+              {behaviors.filter((behavior) => !behavior.isDeleted).map((behavior) => (
+                <div key={behavior.name} className="list-item">
                   <span><strong>{behavior.name}</strong></span>
-                  <input
-                    type="checkbox"
-                    checked={behavior.isActive}
-                    onChange={() => setBehaviors((current) => current.map((entry) => entry.id === behavior.id ? { ...entry, isActive: !entry.isActive } : entry))}
-                  />
-                </label>
+                  <div className="subject-roster-actions">
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={behavior.isActive}
+                        onChange={() => setBehaviors((current) => current.map((entry) => entry.id === behavior.id ? { ...entry, isActive: !entry.isActive } : entry))}
+                      />
+                      Active
+                    </label>
+                    <button type="button" className="danger" onClick={() => deleteBehavior(behavior)}>Delete</button>
+                  </div>
+                </div>
               ))}
             </div>
           </article>
-        </section>
+        )}
 
+        {adminSection === 'devices' && (
         <article className="card">
           <h2>Biosignal Device Roster</h2>
           <p className="muted">Add sensor types here and activate the ones available for recording. The roster is sensor-agnostic; manufacturer and model are optional details.</p>
@@ -1730,7 +1915,9 @@ function App() {
             ))}
           </div>
         </article>
+        )}
 
+        {adminSection === 'safety' && (
         <article className="card">
           <h2>Data Safety</h2>
           <p className="muted">Primary storage is Firebase (shared across devices). Export/import is an extra backup tool.</p>
@@ -1746,7 +1933,9 @@ function App() {
             style={{ display: 'none' }}
           />
         </article>
+        )}
 
+        {adminSection === 'logs' && (
         <article className="card">
           <h2>Log Entries</h2>
           <p className="muted">Edit or delete any previously saved recording log.</p>
@@ -1821,10 +2010,12 @@ function App() {
             </table>
           </div>
 
-          <div className="status" aria-live="polite">
-            {status.admin && <span className={status.admin.isError ? 'error' : 'success'}>{status.admin.text}</span>}
-          </div>
         </article>
+        )}
+            <div className="status" aria-live="polite">
+              {status.admin && <span className={status.admin.isError ? 'error' : 'success'}>{status.admin.text}</span>}
+            </div>
+          </div>
         </div>
       )}
     </div>

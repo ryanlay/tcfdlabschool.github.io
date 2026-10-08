@@ -68,6 +68,15 @@ button.secondary:focus-visible {
   background: #4b5563;
 }
 
+button.danger {
+  background: #991b1b;
+}
+
+button.danger:hover,
+button.danger:focus-visible {
+  background: #7f1d1d;
+}
+
 a {
   color: #9a4b00;
   font-weight: 600;
@@ -327,6 +336,38 @@ table {
   font-size: 14px;
 }
 
+.review-data-table {
+  table-layout: fixed;
+}
+
+.review-data-table th:nth-child(1),
+.review-data-table td:nth-child(1) { width: 5%; }
+.review-data-table th:nth-child(2),
+.review-data-table td:nth-child(2) { width: 15%; }
+.review-data-table th:nth-child(3),
+.review-data-table td:nth-child(3) { width: 7%; }
+.review-data-table th:nth-child(4),
+.review-data-table td:nth-child(4) { width: 10%; }
+.review-data-table th:nth-child(5),
+.review-data-table td:nth-child(5) { width: 16%; }
+.review-data-table th:nth-child(6),
+.review-data-table td:nth-child(6) { width: 9%; }
+.review-data-table th:nth-child(6) { white-space: normal; }
+.review-data-table th:nth-child(7),
+.review-data-table td:nth-child(7) { width: 22%; }
+.review-data-table th:nth-child(8),
+.review-data-table td:nth-child(8) { width: 8%; }
+.review-data-table th:nth-child(9),
+.review-data-table td:nth-child(9) { width: 8%; }
+
+.review-data-table .behavior-cell,
+.review-data-table .biosignal-cell,
+.review-data-table .notes-cell {
+  min-width: 0;
+  max-width: none;
+  overflow-wrap: anywhere;
+}
+
 th {
   background: var(--brand-orange-soft);
   text-align: left;
@@ -490,6 +531,148 @@ tbody tr:hover td {
   margin: 0;
 }
 
+.subject-roster-item {
+  flex-wrap: wrap;
+}
+
+.subject-roster-item > input {
+  flex: 1 1 150px;
+  width: auto;
+  margin: 0;
+}
+
+.subject-roster-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.subject-roster-actions button {
+  padding: 7px 10px;
+}
+
+.admin-workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.admin-nav {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(242, 125, 0, 0.14);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(31, 41, 55, 0.05);
+}
+
+.admin-nav-label {
+  margin: 2px 8px 8px;
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+button.admin-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--brand-ink);
+  text-align: left;
+}
+
+button.admin-nav-item:hover,
+button.admin-nav-item:focus-visible {
+  background: #fff3e6;
+  color: var(--brand-ink);
+}
+
+button.admin-nav-item.selected {
+  background: var(--brand-orange-soft);
+  color: #854400;
+  box-shadow: inset 3px 0 var(--brand-orange);
+}
+
+.admin-nav-count {
+  display: inline-flex;
+  min-width: 26px;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-panel {
+  min-width: 0;
+}
+
+.admin-panel > .card {
+  margin: 0;
+}
+
+.admin-panel .list {
+  max-height: min(55vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.admin-panel .table-wrap {
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.admin-panel .table-wrap thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
+}
+
+.subject-search {
+  display: block;
+  max-width: 440px;
+  margin-top: 16px;
+}
+
+.inactive-subjects {
+  margin-top: 18px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+}
+
+button.inactive-subjects-toggle {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 2px;
+  background: transparent;
+  color: #4b5563;
+  text-align: left;
+}
+
+button.inactive-subjects-toggle:hover,
+button.inactive-subjects-toggle:focus-visible {
+  background: transparent;
+  color: var(--brand-orange-dark);
+}
+
 .toggle {
   display: inline-flex;
   align-items: center;
@@ -509,6 +692,21 @@ tbody tr:hover td {
   .hero {
     grid-template-columns: 1fr;
     display: grid;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-nav {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-nav-label {
+    grid-column: 1 / -1;
   }
 }
 
