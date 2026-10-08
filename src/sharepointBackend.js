@@ -45,6 +45,7 @@ function cloneDefaultState(defaultState) {
   return {
     subjects: Array.isArray(defaultState.subjects) ? defaultState.subjects : [],
     behaviors: Array.isArray(defaultState.behaviors) ? defaultState.behaviors : [],
+    devices: Array.isArray(defaultState.devices) ? defaultState.devices : [],
     videos: Array.isArray(defaultState.videos) ? defaultState.videos : [],
   }
 }
@@ -53,6 +54,7 @@ function normalizeState(state, fallback) {
   return {
     subjects: Array.isArray(state?.subjects) ? state.subjects : fallback.subjects,
     behaviors: Array.isArray(state?.behaviors) ? state.behaviors : fallback.behaviors,
+    devices: Array.isArray(state?.devices) ? state.devices : fallback.devices,
     videos: Array.isArray(state?.videos) ? state.videos : fallback.videos,
   }
 }
@@ -91,6 +93,7 @@ export async function saveSharedState(state, { expectedUpdatedAt, force = false 
   const payload = {
     subjects: Array.isArray(state?.subjects) ? state.subjects : [],
     behaviors: Array.isArray(state?.behaviors) ? state.behaviors : [],
+    devices: Array.isArray(state?.devices) ? state.devices : [],
     videos: Array.isArray(state?.videos) ? state.videos : [],
   }
 

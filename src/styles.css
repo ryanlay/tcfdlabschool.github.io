@@ -352,6 +352,46 @@ td {
   white-space: pre-line;
 }
 
+.biosignal-cell {
+  min-width: 220px;
+  white-space: pre-line;
+}
+
+.biosignal-fields {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.biosignal-device-list {
+  gap: 10px;
+}
+
+.biosignal-device-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(130px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+button.biosignal-add,
+button.biosignal-remove {
+  width: fit-content;
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .biosignal-device-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .notes-text {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

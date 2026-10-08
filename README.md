@@ -31,6 +31,7 @@ The app uses `base: '/tcfdlabschool.github.io/'` for project-site hosting on Git
 ## Features
 
 - Intake wizard with subjects and behavior selection, with second-precision recording start times
+- Per-video, per-subject biosignal availability tracking (defaults to No), with a sensor-agnostic active device roster in Admin and multiple roster sensors selectable per subject
 - Query-style review tables
 - Searchable data view
 - Subject Profile: historical review of subjects with Person ID, date of birth, Lab School start/end dates, and a validated set of 20 target behaviors — includes a pre-seeded historical roster (subject codes `S01`-`S23`, `AS01`-`AS15`, `RS01`-`RS04`) with known Person IDs, additively merged in on load without overwriting existing data
@@ -41,7 +42,7 @@ The app uses `base: '/tcfdlabschool.github.io/'` for project-site hosting on Git
 
 ## Shared Database Setup (Firebase Firestore)
 
-This app stores `subjects`, `behaviors`, `videos`, and an `updatedAt` value in one Firestore document, so data is shared across browsers and devices. The document path is `lab_school_state/shared` by default. The app creates it on first load if it does not exist.
+This app stores `subjects`, `behaviors`, `devices`, `videos`, and an `updatedAt` value in one Firestore document, so data is shared across browsers and devices. The document path is `lab_school_state/shared` by default. The app creates it on first load if it does not exist.
 
 ### 1) Configure Firebase
 
@@ -62,7 +63,7 @@ Restart the Vite development server after changing environment variables. All si
 
 ### 2) Firestore document and security rules
 
-No manual document creation is required: the app initializes `subjects`, `behaviors`, and `videos` as empty arrays and writes the first `updatedAt` value when the shared document is absent. To seed it manually, create a document with ID `shared` in the `lab_school_state` collection, containing those three fields as arrays and `updatedAt` as a string.
+No manual document creation is required: the app initializes its data arrays, including the starter Empatica EmbracePlus device roster, and writes the first `updatedAt` value when the shared document is absent. To seed it manually, create a document with ID `shared` in the `lab_school_state` collection, containing `subjects`, `behaviors`, `devices`, and `videos` as arrays and `updatedAt` as a string.
 
 This app currently has no user authentication, so rules that permit its anonymous access necessarily make the shared data publicly readable and writable. For the single document, the minimum functional rules are:
 
@@ -73,13 +74,14 @@ service cloud.firestore {
     match /lab_school_state/shared {
       allow get: if true;
       allow create, update: if request.resource.data.keys().hasAll([
-          'subjects', 'behaviors', 'videos', 'updatedAt'
+          'subjects', 'behaviors', 'devices', 'videos', 'updatedAt'
         ])
         && request.resource.data.keys().hasOnly([
-          'subjects', 'behaviors', 'videos', 'updatedAt'
+          'subjects', 'behaviors', 'devices', 'videos', 'updatedAt'
         ])
         && request.resource.data.subjects is list
         && request.resource.data.behaviors is list
+        && request.resource.data.devices is list
         && request.resource.data.videos is list
         && request.resource.data.updatedAt is string;
     }

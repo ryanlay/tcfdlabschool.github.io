@@ -4,13 +4,14 @@ service cloud.firestore {
     match /lab_school_state/shared {
       allow get: if true;
       allow create, update: if request.resource.data.keys().hasAll([
-          'subjects', 'behaviors', 'videos', 'updatedAt'
+          'subjects', 'behaviors', 'devices', 'videos', 'updatedAt'
         ])
         && request.resource.data.keys().hasOnly([
-          'subjects', 'behaviors', 'videos', 'updatedAt'
+          'subjects', 'behaviors', 'devices', 'videos', 'updatedAt'
         ])
         && request.resource.data.subjects is list
         && request.resource.data.behaviors is list
+        && request.resource.data.devices is list
         && request.resource.data.videos is list
         && request.resource.data.updatedAt is string;
     }

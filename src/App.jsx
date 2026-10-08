@@ -119,6 +119,10 @@ const defaultBehaviors = [
   { id: 3, name: 'Motor Disruption', isActive: true },
 ]
 
+const defaultDevices = [
+  { id: 1, name: 'EmbracePlus', manufacturer: 'Empatica', model: 'EmbracePlus', isActive: true },
+]
+
 const defaultVideos = [
   {
     id: 1,
@@ -192,6 +196,68 @@ function formatBehaviorGroups(occurrences = []) {
   return [...behaviorsBySubject]
     .map(([subjectCode, behaviorNames]) => `${subjectCode} ${behaviorNames.join(', ')}`)
     .join('\n')
+}
+
+function formatBiosignalGroups(video) {
+  const subjectsWithData = (video.subjectCodes || []).filter((subjectCode) => (
+    video.biosignalBySubject?.[subjectCode]?.available
+      && video.biosignalBySubject[subjectCode].deviceIds?.length > 0
+  ))
+  return subjectsWithData.length ? subjectsWithData.join('\n') : 'No'
+}
+
+function sensorLabel(device) {
+  const details = [device.manufacturer, device.model].filter(Boolean).join(' ')
+  return details && !device.name.toLowerCase().includes(details.toLowerCase())
+    ? `${device.name} (${details})`
+    : device.name
+}
+
+function BiosignalSubjectFields({ subjectCode, value, devices, onChange }) {
+  const available = Boolean(value?.available)
+  const selectedDeviceIds = Array.isArray(value?.deviceIds) ? value.deviceIds : []
+
+  return (
+    <div className="biosignal-fields">
+      <p className="muted biosignal-guidance">
+        Select Yes if this subject wore a biosignal device for any part of the recording.
+      </p>
+      <label>
+        Biosignal Data Available for {subjectCode}
+        <select
+          value={available ? 'yes' : 'no'}
+          onChange={(event) => onChange({
+            available: event.target.value === 'yes',
+            deviceIds: event.target.value === 'yes' ? selectedDeviceIds : [],
+          })}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </label>
+      {available && (
+        <div className="chip-grid biosignal-roster-options">
+          {devices.length ? devices.map((device) => (
+            <label key={device.id} className={`chip ${selectedDeviceIds.includes(device.id) ? 'selected' : ''}`}>
+              <input
+                type="checkbox"
+                checked={selectedDeviceIds.includes(device.id)}
+                onChange={() => onChange({
+                  available: true,
+                  deviceIds: selectedDeviceIds.includes(device.id)
+                    ? selectedDeviceIds.filter((deviceId) => deviceId !== device.id)
+                    : [...selectedDeviceIds, device.id],
+                })}
+              />
+              <span>{device.name}</span>
+            </label>
+          )) : (
+            <p className="muted">No active sensors in Admin. Add or activate a sensor before recording biosignal data.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function esc(value) {
@@ -271,6 +337,9 @@ function EditVideoPanel({
   editVideoSubjects,
   subjects,
   toggleEditSubject,
+  devices,
+  editBiosignalBySubject,
+  updateEditBiosignal,
   behaviors,
   editVideoOccurrenceMap,
   toggleEditOccurrence,
@@ -354,6 +423,12 @@ function EditVideoPanel({
                     )
                   })}
                 </div>
+                <BiosignalSubjectFields
+                  subjectCode={subjectCode}
+                  value={editBiosignalBySubject[subjectCode]}
+                  devices={devices.filter((device) => device.isActive || editBiosignalBySubject[subjectCode]?.deviceIds?.includes(device.id))}
+                  onChange={(value) => updateEditBiosignal(subjectCode, value)}
+                />
               </div>
             ))}
           </div>
@@ -373,6 +448,7 @@ function App() {
   const [view, setView] = useState(views.home)
   const [subjects, setSubjects] = useState(defaultSubjects)
   const [behaviors, setBehaviors] = useState(defaultBehaviors)
+  const [devices, setDevices] = useState(defaultDevices)
   const [videos, setVideos] = useState(defaultVideos)
   const [status, setStatus] = useState({ home: '', recording: '', review: '', data: '', admin: '', profile: '', conflict: '' })
 
@@ -382,6 +458,7 @@ function App() {
   const [videoNotes, setVideoNotes] = useState('')
   const [selectedSubjects, setSelectedSubjects] = useState([])
   const [occurrenceMap, setOccurrenceMap] = useState({})
+  const [biosignalBySubject, setBiosignalBySubject] = useState({})
 
   const [dataSearch, setDataSearch] = useState('')
   const [dataSort, setDataSort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
@@ -397,6 +474,9 @@ function App() {
   const [newSubjectCode, setNewSubjectCode] = useState('')
   const [newSubjectName, setNewSubjectName] = useState('')
   const [newBehaviorName, setNewBehaviorName] = useState('')
+  const [newDeviceName, setNewDeviceName] = useState('')
+  const [newDeviceManufacturer, setNewDeviceManufacturer] = useState('')
+  const [newDeviceModel, setNewDeviceModel] = useState('')
 
   // Subject historical profile
   const [profileSubjectCode, setProfileSubjectCode] = useState('')
@@ -415,6 +495,7 @@ function App() {
   const [editVideoNotes, setEditVideoNotes] = useState('')
   const [editVideoSubjects, setEditVideoSubjects] = useState([])
   const [editVideoOccurrenceMap, setEditVideoOccurrenceMap] = useState({})
+  const [editBiosignalBySubject, setEditBiosignalBySubject] = useState({})
   const [adminLogSort, setAdminLogSort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
   const importFileInputRef = useRef(null)
   const hasHydratedFromBackendRef = useRef(false)
@@ -433,6 +514,7 @@ function App() {
         show('home', 'Firebase is not configured. Add Firebase environment settings.', true)
         setSubjects(withHistoricalRoster(defaultSubjects))
         setBehaviors(defaultBehaviors)
+        setDevices(defaultDevices)
         setVideos(defaultVideos)
         setReady(true)
         return
@@ -441,11 +523,13 @@ function App() {
       const state = await loadSharedStateWithRetry({
         subjects: defaultSubjects,
         behaviors: defaultBehaviors,
+        devices: defaultDevices,
         videos: defaultVideos,
       })
 
       setSubjects(withHistoricalRoster(Array.isArray(state.subjects) && state.subjects.length ? state.subjects : defaultSubjects))
       setBehaviors(Array.isArray(state.behaviors) && state.behaviors.length ? state.behaviors : defaultBehaviors)
+      setDevices(Array.isArray(state.devices) ? state.devices : defaultDevices)
       setVideos(Array.isArray(state.videos) ? state.videos : defaultVideos)
       updatedAtRef.current = state.updatedAt ?? null
       hasHydratedFromBackendRef.current = true
@@ -465,6 +549,7 @@ function App() {
       )
       setSubjects(withHistoricalRoster(defaultSubjects))
       setBehaviors(defaultBehaviors)
+      setDevices(defaultDevices)
       setVideos(defaultVideos)
       setReady(true)
     } finally {
@@ -487,7 +572,7 @@ function App() {
 
     saveTimerRef.current = setTimeout(async () => {
       try {
-        const saved = await saveSharedState({ subjects, behaviors, videos }, { expectedUpdatedAt: updatedAtRef.current })
+        const saved = await saveSharedState({ subjects, behaviors, devices, videos }, { expectedUpdatedAt: updatedAtRef.current })
         updatedAtRef.current = saved.updatedAt
         show('admin', 'Saved to Firebase.', false)
       } catch (error) {
@@ -505,10 +590,11 @@ function App() {
         clearTimeout(saveTimerRef.current)
       }
     }
-  }, [ready, subjects, behaviors, videos])
+  }, [ready, subjects, behaviors, devices, videos])
 
   const activeSubjects = useMemo(() => subjects.filter((subject) => subject.isActive), [subjects])
   const activeBehaviors = useMemo(() => behaviors.filter((behavior) => behavior.isActive), [behaviors])
+  const activeDevices = useMemo(() => devices.filter((device) => device.isActive), [devices])
   const activeSubjectCodeSet = useMemo(() => new Set(activeSubjects.map((subject) => subject.subjectCode)), [activeSubjects])
   const selectedActiveSubjects = useMemo(
     () => selectedSubjects.filter((subjectCode) => activeSubjectCodeSet.has(subjectCode)),
@@ -621,11 +707,19 @@ function App() {
 
   const dataRows = useMemo(() => {
     const filtered = videos.filter((video) => {
-      const haystack = `${video.id} ${video.notes || ''} ${video.subjectCodes.join(' ')} ${video.occurrences.map((x) => x.behaviorTypeName).join(' ')}`.toLowerCase()
+      const biosignalSearchText = Object.entries(video.biosignalBySubject || {}).flatMap(([subjectCode, record]) => [
+        subjectCode,
+        record?.available ? 'yes' : 'no',
+        ...(record?.deviceIds || []).flatMap((deviceId) => {
+          const device = devices.find((entry) => entry.id === deviceId)
+          return device ? [device.name, device.manufacturer, device.model] : []
+        }),
+      ]).join(' ')
+      const haystack = `${video.id} ${video.notes || ''} ${video.subjectCodes.join(' ')} ${video.occurrences.map((x) => x.behaviorTypeName).join(' ')} ${biosignalSearchText}`.toLowerCase()
       return haystack.includes(dataSearch.toLowerCase())
     })
     return sortRows(filtered.map((video) => ({ __key: `data-${video.id}`, ...video })), dataSort.sortCol, dataSort.sortDir, (row, key) => row[key])
-  }, [videos, dataSearch, dataSort])
+  }, [videos, devices, dataSearch, dataSort])
 
   function show(msgKey, message, isError = false) {
     setStatus((current) => ({ ...current, [msgKey]: message ? { text: message, isError } : '' }))
@@ -638,6 +732,7 @@ function App() {
     setVideoNotes('')
     setSelectedSubjects([])
     setOccurrenceMap({})
+    setBiosignalBySubject({})
     show('recording', '', false)
   }
 
@@ -655,6 +750,16 @@ function App() {
           }
           return updated
         })
+        setBiosignalBySubject((currentBiosignals) => {
+          const updated = { ...currentBiosignals }
+          delete updated[code]
+          return updated
+        })
+      } else {
+        setBiosignalBySubject((currentBiosignals) => ({
+          ...currentBiosignals,
+          [code]: currentBiosignals[code] || { available: false, deviceIds: [] },
+        }))
       }
       return next
     })
@@ -663,6 +768,10 @@ function App() {
   function toggleOccurrence(subjectCode, behaviorName) {
     const key = `${subjectCode}::${behaviorName}`
     setOccurrenceMap((current) => ({ ...current, [key]: !current[key] }))
+  }
+
+  function updateBiosignal(subjectCode, value) {
+    setBiosignalBySubject((current) => ({ ...current, [subjectCode]: value }))
   }
 
   function collectOccurrences() {
@@ -685,6 +794,15 @@ function App() {
       return
     }
 
+    const invalidBiosignal = selectedSubjects.some((subjectCode) => {
+      const record = biosignalBySubject[subjectCode]
+      return record?.available && !record.deviceIds?.length
+    })
+    if (invalidBiosignal) {
+      show('recording', 'For each subject with biosignal data, select at least one active sensor.', true)
+      return
+    }
+
     const nextVideo = {
       id: videos.length ? Math.max(...videos.map((video) => video.id)) + 1 : 1,
       recordStartTime: new Date(recordStartTime).toISOString(),
@@ -692,6 +810,13 @@ function App() {
       notes: videoNotes.trim() || null,
       uploadedToSharePoint: false,
       subjectCodes: selectedSubjects,
+      biosignalBySubject: Object.fromEntries(selectedSubjects.map((subjectCode) => {
+        const record = biosignalBySubject[subjectCode] || { available: false, deviceIds: [] }
+        return [subjectCode, {
+          available: Boolean(record.available),
+          deviceIds: record.available ? record.deviceIds : [],
+        }]
+      })),
       occurrences: collectOccurrences(),
       createdAt: new Date().toISOString(),
     }
@@ -705,6 +830,7 @@ function App() {
       setVideoNotes('')
       setSelectedSubjects([])
       setOccurrenceMap({})
+      setBiosignalBySubject({})
       setIntakeStep(1)
     } else {
       resetIntake()
@@ -830,12 +956,39 @@ function App() {
     show('admin', `Added behavior ${name}.`, false)
   }
 
+  function addDevice() {
+    const name = newDeviceName.trim()
+    if (!name) return show('admin', 'Enter a sensor or device name.', true)
+    if (devices.some((device) => device.name.toLowerCase() === name.toLowerCase())) {
+      return show('admin', 'That sensor or device is already in the roster.', true)
+    }
+
+    const nextDevice = {
+      id: devices.length ? Math.max(...devices.map((device) => device.id)) + 1 : 1,
+      name,
+      manufacturer: newDeviceManufacturer.trim(),
+      model: newDeviceModel.trim(),
+      isActive: true,
+    }
+    setDevices((current) => [nextDevice, ...current])
+    setNewDeviceName('')
+    setNewDeviceManufacturer('')
+    setNewDeviceModel('')
+    show('admin', `Added sensor ${name}.`, false)
+  }
+
   function startEditVideo(video) {
     setEditingVideoId(video.id)
     setEditVideoStart(localInputValue(new Date(video.recordStartTime)))
     setEditVideoDuration(String(Math.round(video.durationSeconds / 60)))
     setEditVideoNotes(video.notes || '')
     setEditVideoSubjects([...video.subjectCodes])
+    setEditBiosignalBySubject(Object.fromEntries(video.subjectCodes.map((subjectCode) => [
+      subjectCode,
+      video.biosignalBySubject?.[subjectCode]?.deviceIds
+        ? video.biosignalBySubject[subjectCode]
+        : { available: false, deviceIds: [] },
+    ])))
     const map = {}
     for (const occ of video.occurrences) {
       map[`${occ.subjectCode}::${occ.behaviorTypeName}`] = true
@@ -853,6 +1006,14 @@ function App() {
     const minutes = Number(editVideoDuration)
     if (!editVideoStart || !Number.isFinite(minutes) || minutes < 1 || editVideoSubjects.length === 0) {
       show('admin', 'Enter a start time, a duration, and at least one subject.', true)
+      return
+    }
+    const invalidBiosignal = editVideoSubjects.some((subjectCode) => {
+      const record = editBiosignalBySubject[subjectCode]
+      return record?.available && !record.deviceIds?.length
+    })
+    if (invalidBiosignal) {
+      show('admin', 'For each subject with biosignal data, select at least one sensor.', true)
       return
     }
     const occurrences = []
@@ -873,6 +1034,13 @@ function App() {
               durationSeconds: Math.round(minutes * 60),
               notes: editVideoNotes.trim() || null,
               subjectCodes: editVideoSubjects,
+              biosignalBySubject: Object.fromEntries(editVideoSubjects.map((subjectCode) => {
+                const record = editBiosignalBySubject[subjectCode] || { available: false, deviceIds: [] }
+                return [subjectCode, {
+                  available: Boolean(record.available),
+                  deviceIds: record.available ? record.deviceIds : [],
+                }]
+              })),
               occurrences,
             }
           : video,
@@ -894,6 +1062,7 @@ function App() {
       exportedAt: new Date().toISOString(),
       subjects,
       behaviors,
+      devices,
       videos,
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
@@ -922,6 +1091,7 @@ function App() {
       const parsed = JSON.parse(text)
       const nextSubjects = Array.isArray(parsed?.subjects) ? parsed.subjects : null
       const nextBehaviors = Array.isArray(parsed?.behaviors) ? parsed.behaviors : null
+      const nextDevices = Array.isArray(parsed?.devices) ? parsed.devices : devices
       const nextVideos = Array.isArray(parsed?.videos) ? parsed.videos : null
 
       if (!nextSubjects || !nextBehaviors || !nextVideos) {
@@ -936,6 +1106,7 @@ function App() {
       const rosteredSubjects = withHistoricalRoster(nextSubjects)
       setSubjects(rosteredSubjects)
       setBehaviors(nextBehaviors)
+      setDevices(nextDevices)
       setVideos(nextVideos)
       setEditingVideoId(null)
 
@@ -948,7 +1119,7 @@ function App() {
         // against the server's current updatedAt - if someone else saved more recent changes
         // since this tab last loaded, we refuse to blindly overwrite them.
         const saved = await saveSharedState(
-          { subjects: rosteredSubjects, behaviors: nextBehaviors, videos: nextVideos },
+          { subjects: rosteredSubjects, behaviors: nextBehaviors, devices: nextDevices, videos: nextVideos },
           { expectedUpdatedAt: updatedAtRef.current },
         )
         updatedAtRef.current = saved.updatedAt
@@ -973,9 +1144,20 @@ function App() {
   }
 
   function toggleEditSubject(code) {
-    setEditVideoSubjects((current) =>
-      current.includes(code) ? current.filter((value) => value !== code) : [...current, code],
-    )
+    setEditVideoSubjects((current) => {
+      const removing = current.includes(code)
+      setEditBiosignalBySubject((currentBiosignals) => {
+        const updated = { ...currentBiosignals }
+        if (removing) delete updated[code]
+        else updated[code] = updated[code] || { available: false, deviceIds: [] }
+        return updated
+      })
+      return removing ? current.filter((value) => value !== code) : [...current, code]
+    })
+  }
+
+  function updateEditBiosignal(subjectCode, value) {
+    setEditBiosignalBySubject((current) => ({ ...current, [subjectCode]: value }))
   }
 
   function toggleEditOccurrence(subjectCode, behaviorName) {
@@ -1128,6 +1310,12 @@ function App() {
                       )
                     })}
                   </div>
+                  <BiosignalSubjectFields
+                    subjectCode={subjectCode}
+                    value={biosignalBySubject[subjectCode]}
+                    devices={activeDevices}
+                    onChange={(value) => updateBiosignal(subjectCode, value)}
+                  />
                 </div>
               ))}
             </div>
@@ -1395,6 +1583,12 @@ function App() {
                 ),
               },
               {
+                key: 'biosignalBySubject',
+                label: 'Biosignal Data Available',
+                sortable: false,
+                render: (row) => <div className="biosignal-cell">{formatBiosignalGroups(row) || '—'}</div>,
+              },
+              {
                 key: 'notes',
                 label: 'Notes',
                 sortable: true,
@@ -1500,6 +1694,44 @@ function App() {
         </section>
 
         <article className="card">
+          <h2>Biosignal Device Roster</h2>
+          <p className="muted">Add sensor types here and activate the ones available for recording. The roster is sensor-agnostic; manufacturer and model are optional details.</p>
+          <div className="form-grid">
+            <label>
+              Sensor / device name
+              <input value={newDeviceName} onChange={(event) => setNewDeviceName(event.target.value)} placeholder="EmbracePlus" />
+            </label>
+            <label>
+              Manufacturer (optional)
+              <input value={newDeviceManufacturer} onChange={(event) => setNewDeviceManufacturer(event.target.value)} placeholder="Empatica" />
+            </label>
+            <label>
+              Model (optional)
+              <input value={newDeviceModel} onChange={(event) => setNewDeviceModel(event.target.value)} placeholder="EmbracePlus" />
+            </label>
+          </div>
+          <button type="button" className="primary" onClick={addDevice}>Add Sensor</button>
+          <div className="list">
+            {devices.map((device) => (
+              <label key={device.id} className="list-item">
+                <span>
+                  <strong>{sensorLabel(device)}</strong>
+                  <small>{device.isActive ? 'Active — available in New Recording' : 'Inactive — hidden from new recordings'}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={device.isActive}
+                  onChange={() => setDevices((current) => current.map((entry) => (
+                    entry.id === device.id ? { ...entry, isActive: !entry.isActive } : entry
+                  )))}
+                  aria-label={`${device.name} active`}
+                />
+              </label>
+            ))}
+          </div>
+        </article>
+
+        <article className="card">
           <h2>Data Safety</h2>
           <p className="muted">Primary storage is Firebase (shared across devices). Export/import is an extra backup tool.</p>
           <div className="button-row">
@@ -1531,6 +1763,9 @@ function App() {
             editVideoSubjects={editVideoSubjects}
             subjects={subjects}
             toggleEditSubject={toggleEditSubject}
+            devices={devices}
+            editBiosignalBySubject={editBiosignalBySubject}
+            updateEditBiosignal={updateEditBiosignal}
             behaviors={behaviors}
             editVideoOccurrenceMap={editVideoOccurrenceMap}
             toggleEditOccurrence={toggleEditOccurrence}
@@ -1543,9 +1778,9 @@ function App() {
             <table>
               <thead>
                 <tr>
-                  {[{key: 'id', label: 'ID'}, {key: 'recordStartTime', label: 'Start'}, {key: 'durationSeconds', label: 'Duration'}, {key: 'subjects', label: 'Subjects'}, {key: 'behaviors', label: 'Behaviors'}, {key: 'uploadedToSharePoint', label: 'Uploaded'}].map((col) => (
+                  {[{key: 'id', label: 'ID'}, {key: 'recordStartTime', label: 'Start'}, {key: 'durationSeconds', label: 'Duration'}, {key: 'subjects', label: 'Subjects'}, {key: 'behaviors', label: 'Behaviors'}, {key: 'biosignalBySubject', label: 'Biosignal Data Available'}, {key: 'uploadedToSharePoint', label: 'Uploaded'}].map((col) => (
                     <th key={col.key}>
-                      {col.key !== 'subjects' && col.key !== 'behaviors' ? (
+                      {col.key !== 'subjects' && col.key !== 'behaviors' && col.key !== 'biosignalBySubject' ? (
                         <button className="th-button" type="button" onClick={() => setAdminLogSort((current) => ({ sortCol: col.key, sortDir: current.sortCol === col.key ? current.sortDir * -1 : 1 }))}>
                           {col.label}{adminLogSort.sortCol === col.key ? (adminLogSort.sortDir === 1 ? ' ▲' : ' ▼') : ''}
                         </button>
@@ -1557,7 +1792,7 @@ function App() {
               </thead>
               <tbody>
                 {adminLogRows.length === 0 ? (
-                  <tr><td colSpan={7} className="muted center">No log entries yet.</td></tr>
+                  <tr><td colSpan={8} className="muted center">No log entries yet.</td></tr>
                 ) : (
                   adminLogRows.map((row) => (
                     <tr key={row.__key} className={editingVideoId === row.id ? 'editing-row' : ''}>
@@ -1566,6 +1801,7 @@ function App() {
                       <td>{fmtDuration(row.durationSeconds)}</td>
                       <td>{row.subjectCodes.join(', ')}</td>
                       <td>{row.occurrences.map((o) => o.behaviorTypeName).join(', ') || '—'}</td>
+                      <td><div className="biosignal-cell">{formatBiosignalGroups(row) || '—'}</div></td>
                       <td>
                         <label style={{display: 'flex', alignItems: 'center', gap: '4px'}}>
                           <input type="checkbox" checked={row.uploadedToSharePoint} onChange={(event) => setVideos((current) => current.map((video) => video.id === row.id ? { ...video, uploadedToSharePoint: event.target.checked } : video))} />
