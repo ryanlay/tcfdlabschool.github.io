@@ -347,6 +347,11 @@ td {
   white-space: normal;
 }
 
+.behavior-cell {
+  min-width: 180px;
+  white-space: pre-line;
+}
+
 .notes-text {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

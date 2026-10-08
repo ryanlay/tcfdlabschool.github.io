@@ -181,6 +181,19 @@ function fmtDuration(seconds) {
   return `${totalMinutes} min`
 }
 
+function formatBehaviorGroups(occurrences = []) {
+  const behaviorsBySubject = new Map()
+  for (const occurrence of occurrences) {
+    if (!behaviorsBySubject.has(occurrence.subjectCode)) {
+      behaviorsBySubject.set(occurrence.subjectCode, [])
+    }
+    behaviorsBySubject.get(occurrence.subjectCode).push(occurrence.behaviorTypeName)
+  }
+  return [...behaviorsBySubject]
+    .map(([subjectCode, behaviorNames]) => `${subjectCode} ${behaviorNames.join(', ')}`)
+    .join('\n')
+}
+
 function esc(value) {
   return String(value ?? '')
 }
@@ -1371,7 +1384,16 @@ function App() {
               { key: 'recordStartTime', label: 'Start Time', sortable: true, render: (row) => esc(fmtDate(row.recordStartTime)) },
               { key: 'durationSeconds', label: 'Duration', sortable: true, render: (row) => esc(fmtDuration(row.durationSeconds)) },
               { key: 'subjects', label: 'Subjects', sortable: false, render: (row) => esc(row.subjectCodes.join(', ')) },
-              { key: 'behaviors', label: 'Behaviors', sortable: false, render: (row) => esc(row.occurrences.map((occurrence) => occurrence.behaviorTypeName).join(', ') || '—') },
+              {
+                key: 'behaviors',
+                label: 'Behaviors',
+                sortable: false,
+                render: (row) => (
+                  <div className="behavior-cell">
+                    {formatBehaviorGroups(row.occurrences) || '—'}
+                  </div>
+                ),
+              },
               {
                 key: 'notes',
                 label: 'Notes',
