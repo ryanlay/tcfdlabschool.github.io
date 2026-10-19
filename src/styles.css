@@ -264,6 +264,39 @@ a:hover {
   margin-bottom: 14px;
 }
 
+.data-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 1 660px;
+}
+
+.data-filters > input[type="search"] {
+  min-width: 200px;
+  flex: 1 1 280px;
+  margin-top: 0;
+}
+
+.data-date-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.data-date-filter input {
+  width: 170px;
+  margin-top: 0;
+}
+
+.data-date-clear {
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
 .section-heading.tight {
   margin-bottom: 8px;
 }
@@ -713,6 +746,19 @@ button.inactive-subjects-toggle:focus-visible {
 @media (max-width: 680px) {
   .app-shell {
     padding: 14px;
+  }
+
+  .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .data-filters {
+    flex-wrap: wrap;
+  }
+
+  .data-filters > input[type="search"] {
+    flex-basis: 100%;
   }
 
   .hero-actions,

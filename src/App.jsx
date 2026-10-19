@@ -180,6 +180,15 @@ function fmtDate(value) {
   return `${month}/${day}/${year} ${hours}:${mins}:${secs} ${ampm}`
 }
 
+function localDateKey(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 function fmtDuration(seconds) {
   const totalMinutes = Math.round(Number(seconds || 0) / 60)
   return `${totalMinutes} min`
@@ -461,6 +470,7 @@ function App() {
   const [biosignalBySubject, setBiosignalBySubject] = useState({})
 
   const [dataSearch, setDataSearch] = useState('')
+  const [dataDate, setDataDate] = useState('')
   const [dataSort, setDataSort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
   const [expandedNoteIds, setExpandedNoteIds] = useState(() => new Set())
 
@@ -723,10 +733,12 @@ function App() {
         }),
       ]).join(' ')
       const haystack = `${video.id} ${video.notes || ''} ${video.subjectCodes.join(' ')} ${video.occurrences.map((x) => x.behaviorTypeName).join(' ')} ${biosignalSearchText}`.toLowerCase()
-      return haystack.includes(dataSearch.toLowerCase())
+      const matchesSearch = haystack.includes(dataSearch.toLowerCase())
+      const matchesDate = !dataDate || localDateKey(video.recordStartTime) === dataDate
+      return matchesSearch && matchesDate
     })
     return sortRows(filtered.map((video) => ({ __key: `data-${video.id}`, ...video })), dataSort.sortCol, dataSort.sortDir, (row, key) => row[key])
-  }, [videos, devices, dataSearch, dataSort])
+  }, [videos, devices, dataSearch, dataDate, dataSort])
 
   function show(msgKey, message, isError = false) {
     setStatus((current) => ({ ...current, [msgKey]: message ? { text: message, isError } : '' }))
@@ -1648,14 +1660,31 @@ function App() {
           <div className="section-heading">
             <div>
               <h2>Data</h2>
-              <p className="muted">Search and sort all recorded videos.</p>
+              <p className="muted">Search and sort videos, or choose a capture date to see that day’s recordings.</p>
             </div>
-            <input
-              type="search"
-              value={dataSearch}
-              onChange={(event) => setDataSearch(event.target.value)}
-              placeholder="Search id, notes, subject, behavior"
-            />
+            <div className="data-filters">
+              <input
+                type="search"
+                aria-label="Search videos"
+                value={dataSearch}
+                onChange={(event) => setDataSearch(event.target.value)}
+                placeholder="Search id, notes, subject, behavior"
+              />
+              <label className="data-date-filter">
+                <span>Captured on</span>
+                <input
+                  type="date"
+                  aria-label="Filter videos by capture date"
+                  value={dataDate}
+                  onChange={(event) => setDataDate(event.target.value)}
+                />
+              </label>
+              {dataDate && (
+                <button type="button" className="secondary data-date-clear" onClick={() => setDataDate('')}>
+                  Clear date
+                </button>
+              )}
+            </div>
           </div>
           <Table
             tableClassName="review-data-table"
