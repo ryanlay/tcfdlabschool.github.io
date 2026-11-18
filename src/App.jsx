@@ -866,8 +866,20 @@ function App() {
     const code = newSubjectCode.trim().toUpperCase()
     if (!code) return show('admin', 'Enter a subject code.', true)
 
-    if (subjects.some((subject) => subject.subjectCode.toUpperCase() === code)) {
+    const existing = subjects.find((subject) => subject.subjectCode.toUpperCase() === code)
+    if (existing && !existing.isDeleted) {
       return show('admin', 'That subject already exists.', true)
+    }
+
+    if (existing && existing.isDeleted) {
+      // A previously deleted subject is a hidden tombstone, not a real duplicate. Revive it
+      // instead of blocking the add, so the code can be reused without leaving it stuck invisible.
+      setSubjects((current) => current.map((entry) => entry.id === existing.id
+        ? { ...entry, isDeleted: false, isActive: true }
+        : entry))
+      setNewSubjectCode('')
+      show('admin', `Restored subject ${code}.`, false)
+      return
     }
 
     const nextSubject = {
@@ -902,8 +914,14 @@ function App() {
     const subject = subjects.find((entry) => entry.id === subjectId)
     if (!subject) return cancelEditSubject()
     if (!nextCode) return show('admin', 'Enter a subject code.', true)
-    if (subjects.some((entry) => entry.id !== subjectId && entry.subjectCode.toUpperCase() === nextCode)) {
+    const conflicting = subjects.find((entry) => entry.id !== subjectId && entry.subjectCode.toUpperCase() === nextCode)
+    if (conflicting && !conflicting.isDeleted) {
       return show('admin', 'That subject already exists.', true)
+    }
+    if (conflicting && conflicting.isDeleted) {
+      // The target code belongs to a hidden tombstone. Drop the tombstone instead of blocking
+      // the rename, since it no longer needs to reserve that code once it's reused here.
+      setSubjects((current) => current.filter((entry) => entry.id !== conflicting.id))
     }
     if (nextCode === subject.subjectCode) return cancelEditSubject()
 
@@ -1008,8 +1026,21 @@ function App() {
     const code = newProfileSubjectCode.trim().toUpperCase()
     if (!code) return show('profile', 'Enter a subject ID.', true)
 
-    if (subjects.some((subject) => subject.subjectCode.toUpperCase() === code)) {
+    const existing = subjects.find((subject) => subject.subjectCode.toUpperCase() === code)
+    if (existing && !existing.isDeleted) {
       return show('profile', 'That subject already exists.', true)
+    }
+
+    if (existing && existing.isDeleted) {
+      // A previously deleted subject is a hidden tombstone, not a real duplicate. Revive it
+      // instead of blocking the add, so the code can be reused without leaving it stuck invisible.
+      setSubjects((current) => current.map((entry) => entry.id === existing.id
+        ? { ...entry, isDeleted: false, isActive: true }
+        : entry))
+      setNewProfileSubjectCode('')
+      setProfileSubjectCode(code)
+      show('profile', `Restored subject ${code}.`, false)
+      return
     }
 
     const nextSubject = {
