@@ -401,6 +401,16 @@ table {
   overflow-wrap: anywhere;
 }
 
+.admin-log-table th:nth-child(6) {
+  white-space: normal;
+  max-width: 110px;
+}
+
+.admin-log-table .biosignal-cell {
+  min-width: 0;
+  max-width: 110px;
+}
+
 th {
   background: var(--brand-orange-soft);
   text-align: left;

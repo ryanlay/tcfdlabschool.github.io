@@ -2030,7 +2030,7 @@ function App() {
           />
 
           <div className="table-wrap">
-            <table>
+            <table className="admin-log-table">
               <thead>
                 <tr>
                   {[{key: 'id', label: 'ID'}, {key: 'recordStartTime', label: 'Start'}, {key: 'durationSeconds', label: 'Duration'}, {key: 'subjects', label: 'Subjects'}, {key: 'behaviors', label: 'Behaviors'}, {key: 'biosignalBySubject', label: 'Biosignal Data Available'}, {key: 'uploadedToSharePoint', label: 'Uploaded'}].map((col) => (
