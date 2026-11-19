@@ -706,6 +706,28 @@ button.inactive-subjects-toggle:focus-visible {
   color: var(--brand-orange-dark);
 }
 
+button.section-collapse-toggle {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+button.section-collapse-toggle:hover,
+button.section-collapse-toggle:focus-visible {
+  background: transparent;
+  color: var(--brand-orange-dark);
+}
+
+button.section-collapse-toggle h3 {
+  color: inherit;
+}
+
 .toggle {
   display: inline-flex;
   align-items: center;

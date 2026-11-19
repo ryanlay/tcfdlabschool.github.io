@@ -475,6 +475,7 @@ function App() {
   const [expandedNoteIds, setExpandedNoteIds] = useState(() => new Set())
 
   const [q1Sort, setQ1Sort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
+  const [q1Collapsed, setQ1Collapsed] = useState(true)
   const [q2Sort, setQ2Sort] = useState({ sortCol: 'recordStartTime', sortDir: -1 })
   const [q3Subject, setQ3Subject] = useState('CSH01')
   const [q4Behavior, setQ4Behavior] = useState('Aggression')
@@ -1555,21 +1556,26 @@ function App() {
               </article>
 
               <article className="card inset">
-                <h3>Q1 — All Videos</h3>
-                <Table
-                  columns={[
-                    { key: 'id', label: 'ID', sortable: true, render: (row) => esc(row.id) },
-                    { key: 'recordStartTime', label: 'Start', sortable: true, render: (row) => esc(fmtDate(row.recordStartTime)) },
-                    { key: 'durationSeconds', label: 'Duration', sortable: true, render: (row) => esc(fmtDuration(row.durationSeconds)) },
-                    { key: 'subjectCount', label: 'Subjects', sortable: true, render: (row) => esc(row.subjectCodes.length) },
-                    { key: 'uploadedToSharePoint', label: 'Uploaded', sortable: true, render: (row) => (row.uploadedToSharePoint ? 'Yes' : 'No') },
-                    { key: 'folder', label: 'Folder', sortable: false, render: (row) => <a href={sharePointFolderUrl(row.recordStartTime)} target="_blank" rel="noopener">View Folder</a> },
-                  ]}
-                  rows={q1Rows}
-                  sortState={q1Sort}
-                  onSort={(key) => setQ1Sort((current) => ({ sortCol: key, sortDir: current.sortCol === key ? current.sortDir * -1 : 1 }))}
-                  emptyMessage="No videos yet."
-                />
+                <button type="button" className="section-collapse-toggle" aria-expanded={!q1Collapsed} onClick={() => setQ1Collapsed((collapsed) => !collapsed)}>
+                  <h3>{q1Collapsed ? '▸' : '▾'} Q1 — All Videos</h3>
+                  <span className="admin-nav-count">{q1Rows.length}</span>
+                </button>
+                {!q1Collapsed && (
+                  <Table
+                    columns={[
+                      { key: 'id', label: 'ID', sortable: true, render: (row) => esc(row.id) },
+                      { key: 'recordStartTime', label: 'Start', sortable: true, render: (row) => esc(fmtDate(row.recordStartTime)) },
+                      { key: 'durationSeconds', label: 'Duration', sortable: true, render: (row) => esc(fmtDuration(row.durationSeconds)) },
+                      { key: 'subjectCount', label: 'Subjects', sortable: true, render: (row) => esc(row.subjectCodes.length) },
+                      { key: 'uploadedToSharePoint', label: 'Uploaded', sortable: true, render: (row) => (row.uploadedToSharePoint ? 'Yes' : 'No') },
+                      { key: 'folder', label: 'Folder', sortable: false, render: (row) => <a href={sharePointFolderUrl(row.recordStartTime)} target="_blank" rel="noopener">View Folder</a> },
+                    ]}
+                    rows={q1Rows}
+                    sortState={q1Sort}
+                    onSort={(key) => setQ1Sort((current) => ({ sortCol: key, sortDir: current.sortCol === key ? current.sortDir * -1 : 1 }))}
+                    emptyMessage="No videos yet."
+                  />
+                )}
               </article>
 
               <article className="card inset">
